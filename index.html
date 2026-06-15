@@ -227,30 +227,36 @@
   <div class="card" id="setup-card">
     <div class="card-title">
       <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
-      GitHub Gist 設定
+      設定
     </div>
+
     <div class="form-grid">
       <div class="form-group">
-        <label>Personal Access Token</label>
+        <label>GitHub Personal Access Token</label>
         <input type="password" id="gh-token" placeholder="ghp_xxxxxxxxxxxxxxxxxxxx" autocomplete="off" />
       </div>
       <div class="form-group">
         <label>Gist ID（留空自動建立）</label>
         <input type="text" id="gist-id" placeholder="留空則建立新 Gist" />
       </div>
+      <div class="form-group">
+        <label>Fugle Market Data API Key</label>
+        <input type="password" id="fugle-token" placeholder="填入後存入 Gist 跨裝置同步" autocomplete="off" />
+      </div>
     </div>
-    <div style="display:flex;gap:8px;align-items:center">
+    <div style="display:flex;gap:8px;align-items:center;margin-bottom:4px">
       <button class="btn btn-primary" onclick="connectGist()" id="conn-btn">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
-        連接 Gist
+        連接
       </button>
       <button class="btn btn-sm" onclick="toggleSetup()" id="collapse-btn" style="display:none">收起</button>
     </div>
     <div id="conn-status"></div>
-    <div class="gist-hint">
-      ① 前往 GitHub → Settings → Developer settings → Personal access tokens (classic) → 勾選 <strong>gist</strong> 權限建立 Token<br>
-      ② 第一次留空 Gist ID，連接後會自動建立並顯示 ID，請記下備用<br>
-      ③ 之後在其他裝置只需輸入同樣的 Token + Gist ID 即可讀取同步資料
+
+    <div class="gist-hint" style="margin-top:12px">
+      <strong>GitHub Token：</strong>前往 GitHub → Settings → Developer settings → Personal access tokens (classic) → 勾選 gist 權限<br>
+      <strong>Gist ID：</strong>第一次留空，連接後自動建立並顯示 ID，請記下於其他裝置使用<br>
+      <strong>Fugle API Key：</strong>前往 <a href="https://developer.fugle.tw" target="_blank" style="color:var(--blue)">developer.fugle.tw</a> 註冊取得，Key 會加密存入 private Gist 跨裝置同步
     </div>
   </div>
 
@@ -360,6 +366,8 @@ function setStatus(el, type, msg) {
   $(el).innerHTML = `<div class="status status-${type}">${msg}</div>`;
 }
 
+let fugleToken = '';
+
 // Load saved config from localStorage
 window.onload = () => {
   const saved = localStorage.getItem('stock-tracker-config');
@@ -378,16 +386,20 @@ async function connectGist() {
   $('conn-btn').innerHTML = '<span class="spinner"></span> 連接中...';
   $('conn-btn').disabled = true;
 
+  // Read fugle token from input
+  const inputFugleToken = $('fugle-token').value.trim();
+
   try {
     if (!gistId) {
       // Create new Gist
+      const initData = { stocks: [], fugleToken: inputFugleToken, updated: '' };
       const r = await fetch('https://api.github.com/gists', {
         method: 'POST',
         headers: { 'Authorization': 'token ' + token, 'Content-Type': 'application/json' },
         body: JSON.stringify({
           description: '存股追蹤資料（由存股追蹤網站自動建立）',
           public: false,
-          files: { 'stocks.json': { content: JSON.stringify({ stocks: [], updated: '' }) } }
+          files: { 'stocks.json': { content: JSON.stringify(initData) } }
         })
       });
       if (!r.ok) throw new Error(`建立 Gist 失敗（${r.status}）：Token 是否有 gist 權限？`);
@@ -395,6 +407,7 @@ async function connectGist() {
       gistId = d.id;
       $('gist-id').value = gistId;
       stocks = [];
+      fugleToken = inputFugleToken;
     } else {
       // Load existing Gist
       const r = await fetch('https://api.github.com/gists/' + gistId, {
@@ -402,15 +415,28 @@ async function connectGist() {
       });
       if (!r.ok) throw new Error(`讀取 Gist 失敗（${r.status}）：Gist ID 是否正確？`);
       const d = await r.json();
-      const content = d.files['stocks.json']?.content;
-      stocks = content ? (JSON.parse(content).stocks || []) : [];
+      const raw = d.files['stocks.json']?.content;
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        stocks = parsed.stocks || [];
+        // Use Gist's fugleToken; override if user typed a new one
+        fugleToken = inputFugleToken || parsed.fugleToken || '';
+        if (inputFugleToken && inputFugleToken !== parsed.fugleToken) {
+          // User provided a new key, will be saved on next saveGist
+        }
+      } else {
+        stocks = [];
+        fugleToken = inputFugleToken;
+      }
+      if (fugleToken) $('fugle-token').value = fugleToken;
     }
 
-    // Save config
+    // Save GitHub config to localStorage (not fugle key - that lives in Gist)
     localStorage.setItem('stock-tracker-config', JSON.stringify({ token, gistId }));
 
+    const fugleHint = fugleToken ? '' : '　<span style="color:var(--red-text)">⚠ 未填 Fugle Key，無法更新股價</span>';
     setStatus('conn-status', 'ok',
-      `✓ 連接成功！Gist ID：<span class="gist-id-display">${gistId}</span>　請記下此 ID 在其他裝置使用`);
+      `✓ 連接成功！Gist ID：<span class="gist-id-display">${gistId}</span>${fugleHint}`);
     $('conn-badge').textContent = '已連接';
     $('conn-badge').style.background = 'var(--green-bg)';
     $('conn-badge').style.color = 'var(--green-text)';
@@ -422,7 +448,7 @@ async function connectGist() {
   } catch (e) {
     setStatus('conn-status', 'err', '✕ ' + e.message);
   } finally {
-    $('conn-btn').innerHTML = '連接 Gist';
+    $('conn-btn').innerHTML = '連接';
     $('conn-btn').disabled = false;
   }
 }
@@ -439,16 +465,34 @@ async function saveGist() {
     method: 'PATCH',
     headers: { 'Authorization': 'token ' + token, 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      files: { 'stocks.json': { content: JSON.stringify({ stocks, updated: new Date().toISOString() }) } }
+      files: { 'stocks.json': { content: JSON.stringify({ stocks, fugleToken, updated: new Date().toISOString() }) } }
     })
   });
 }
 
 async function fetchPrice(code) {
-  const sym = /^\d+$/.test(code) ? code + '.TW' : code.toUpperCase();
+  // 移除 .TW 後綴，取得純代碼
+  const rawCode = code.replace(/\.TW$/i, '');
+
+  if (fugleToken) {
+    // 有填 Fugle API Key：用 Fugle（台股即時，支援 ETF、槓桿型 ETF）
+    try {
+      const r = await fetch(`https://api.fugle.tw/marketdata/v1.0/stock/intraday/quote/${rawCode}`, {
+        headers: { 'X-API-KEY': fugleToken }
+      });
+      if (r.ok) {
+        const d = await r.json();
+        const price = d.closePrice ?? d.lastPrice ?? d.currentPrice ?? null;
+        if (price) return price;
+      }
+    } catch {}
+    return null;
+  }
+
+  // 沒有 Fugle Key：fallback 用 Yahoo Finance proxy（較慢，部分代碼可能抓不到）
+  const sym = /^\d/.test(rawCode) ? rawCode + '.TW' : rawCode.toUpperCase();
   const yahooUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${sym}?interval=1d&range=1d`;
 
-  // 方法一：allorigins proxy
   try {
     const proxy = `https://api.allorigins.win/get?url=${encodeURIComponent(yahooUrl)}`;
     const r = await fetch(proxy);
@@ -460,7 +504,6 @@ async function fetchPrice(code) {
     }
   } catch {}
 
-  // 方法二：corsproxy.io fallback
   try {
     const proxy2 = `https://corsproxy.io/?${encodeURIComponent(yahooUrl)}`;
     const r = await fetch(proxy2);
@@ -486,7 +529,7 @@ async function refreshPrices() {
   await saveGist();
   renderTable();
   updateSummary();
-  $('s-updated').textContent = `${new Date().toLocaleTimeString('zh-TW')} 更新`;
+  $('s-updated').textContent = `${new Date().toLocaleTimeString('zh-TW')} 更新（${updated}/${stocks.length} 筆）`;
   btn.innerHTML = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 4v6h-6"/><path d="M1 20v-6h6"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg> 更新股價';
   btn.disabled = false;
 }
