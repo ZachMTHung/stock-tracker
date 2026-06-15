@@ -239,10 +239,6 @@
         <label>Gist ID（留空自動建立）</label>
         <input type="text" id="gist-id" placeholder="留空則建立新 Gist" />
       </div>
-      <div class="form-group">
-        <label>Fugle Market Data API Key</label>
-        <input type="password" id="fugle-token" placeholder="填入後存入 Gist 跨裝置同步" autocomplete="off" />
-      </div>
     </div>
     <div style="display:flex;gap:8px;align-items:center;margin-bottom:4px">
       <button class="btn btn-primary" onclick="connectGist()" id="conn-btn">
@@ -253,10 +249,15 @@
     </div>
     <div id="conn-status"></div>
 
+    <div id="fugle-section" style="display:none;margin-top:14px;border-top:0.5px solid var(--border);padding-top:14px">
+      <div style="font-size:11px;font-weight:600;color:var(--text2);text-transform:uppercase;letter-spacing:0.4px;margin-bottom:10px">Fugle API Key — 股價更新</div>
+      <div id="fugle-display"></div>
+    </div>
+
     <div class="gist-hint" style="margin-top:12px">
       <strong>GitHub Token：</strong>前往 GitHub → Settings → Developer settings → Personal access tokens (classic) → 勾選 gist 權限<br>
       <strong>Gist ID：</strong>第一次留空，連接後自動建立並顯示 ID，請記下於其他裝置使用<br>
-      <strong>Fugle API Key：</strong>前往 <a href="https://developer.fugle.tw" target="_blank" style="color:var(--blue)">developer.fugle.tw</a> 註冊取得，Key 會加密存入 private Gist 跨裝置同步
+      <strong>Fugle API Key：</strong>連接後設定，前往 <a href="https://developer.fugle.tw" target="_blank" style="color:var(--blue)">developer.fugle.tw</a> 取得，存入 private Gist 跨裝置同步
     </div>
   </div>
 
@@ -337,19 +338,21 @@
             <th class="td-right">平均成本</th>
             <th class="td-right">現價</th>
             <th class="td-right">市值</th>
-            <th class="td-right">損益（元）</th>
-            <th class="td-right">報酬率</th>
+            <th class="td-right">今日損益（元）</th>
+            <th class="td-right">今日報酬率</th>
+            <th class="td-right">總損益（元）</th>
+            <th class="td-right">總報酬率</th>
             <th></th>
           </tr>
         </thead>
         <tbody id="stock-tbody">
-          <tr><td colspan="9" class="empty-state">尚無持股資料<p>連接 Gist 後點擊「新增持股」開始</p></td></tr>
+          <tr><td colspan="11" class="empty-state">尚無持股資料<p>連接 Gist 後點擊「新增持股」開始</p></td></tr>
         </tbody>
       </table>
     </div>
 
     <div class="footer-note">
-      股價來自 Yahoo Finance（非即時），僅供參考。台股代碼請輸入數字（如 2330），系統自動加 .TW；美股直接輸入代碼（如 AAPL）。
+      有填 Fugle API Key 時股價為盤中即時報價；未填時透過 Yahoo Finance proxy，速度較慢且部分代碼可能抓不到。今日損益以昨日收盤價為基準計算。
     </div>
   </div>
 
@@ -367,6 +370,62 @@ function setStatus(el, type, msg) {
 }
 
 let fugleToken = '';
+
+function renderFugleSection() {
+  const section = $('fugle-section');
+  const display = $('fugle-display');
+  section.style.display = 'block';
+
+  if (!fugleToken) {
+    // 未填：顯示輸入框
+    display.innerHTML = `
+      <div style="display:flex;gap:8px;align-items:flex-end">
+        <div class="form-group" style="flex:1">
+          <input type="password" id="fugle-input" placeholder="填入 Fugle API Key" autocomplete="off"
+            style="font-size:13px;padding:8px 10px;border-radius:var(--radius-sm);border:0.5px solid var(--border2);background:var(--surface2);color:var(--text);outline:none;width:100%;font-family:inherit" />
+        </div>
+        <button class="btn btn-sm btn-primary" onclick="saveFugleKey()">儲存</button>
+      </div>`;
+  } else {
+    // 已填：顯示遮罩 + 編輯/刪除
+    const masked = fugleToken.slice(0, 4) + '••••••••' + fugleToken.slice(-4);
+    display.innerHTML = `
+      <div style="display:flex;align-items:center;gap:10px">
+        <span style="font-size:13px;font-family:monospace;color:var(--text2)">${masked}</span>
+        <button class="btn btn-sm" onclick="editFugleKey()" title="編輯">✎ 編輯</button>
+        <button class="btn btn-sm btn-danger" onclick="deleteFugleKey()" title="刪除">✕ 刪除</button>
+      </div>`;
+  }
+}
+
+async function saveFugleKey() {
+  const val = $('fugle-input')?.value.trim();
+  if (!val) return;
+  fugleToken = val;
+  await saveGist();
+  renderFugleSection();
+}
+
+function editFugleKey() {
+  const display = $('fugle-display');
+  display.innerHTML = `
+    <div style="display:flex;gap:8px;align-items:flex-end">
+      <div class="form-group" style="flex:1">
+        <input type="password" id="fugle-input" placeholder="輸入新的 Fugle API Key" autocomplete="off"
+          style="font-size:13px;padding:8px 10px;border-radius:var(--radius-sm);border:0.5px solid var(--border2);background:var(--surface2);color:var(--text);outline:none;width:100%;font-family:inherit" />
+      </div>
+      <button class="btn btn-sm btn-primary" onclick="saveFugleKey()">儲存</button>
+      <button class="btn btn-sm" onclick="renderFugleSection()">取消</button>
+    </div>`;
+  $('fugle-input').focus();
+}
+
+async function deleteFugleKey() {
+  if (!confirm('確定要刪除 Fugle API Key？刪除後將改用 Yahoo Finance proxy 更新股價。')) return;
+  fugleToken = '';
+  await saveGist();
+  renderFugleSection();
+}
 
 // Load saved config from localStorage
 window.onload = () => {
@@ -386,13 +445,10 @@ async function connectGist() {
   $('conn-btn').innerHTML = '<span class="spinner"></span> 連接中...';
   $('conn-btn').disabled = true;
 
-  // Read fugle token from input
-  const inputFugleToken = $('fugle-token').value.trim();
-
   try {
     if (!gistId) {
       // Create new Gist
-      const initData = { stocks: [], fugleToken: inputFugleToken, updated: '' };
+      const initData = { stocks: [], fugleToken: '', updated: '' };
       const r = await fetch('https://api.github.com/gists', {
         method: 'POST',
         headers: { 'Authorization': 'token ' + token, 'Content-Type': 'application/json' },
@@ -407,7 +463,7 @@ async function connectGist() {
       gistId = d.id;
       $('gist-id').value = gistId;
       stocks = [];
-      fugleToken = inputFugleToken;
+      fugleToken = '';
     } else {
       // Load existing Gist
       const r = await fetch('https://api.github.com/gists/' + gistId, {
@@ -420,28 +476,24 @@ async function connectGist() {
         const parsed = JSON.parse(raw);
         stocks = parsed.stocks || [];
         // Use Gist's fugleToken; override if user typed a new one
-        fugleToken = inputFugleToken || parsed.fugleToken || '';
-        if (inputFugleToken && inputFugleToken !== parsed.fugleToken) {
-          // User provided a new key, will be saved on next saveGist
-        }
+        fugleToken = parsed.fugleToken || '';
       } else {
         stocks = [];
-        fugleToken = inputFugleToken;
+        fugleToken = '';
       }
-      if (fugleToken) $('fugle-token').value = fugleToken;
     }
 
     // Save GitHub config to localStorage (not fugle key - that lives in Gist)
     localStorage.setItem('stock-tracker-config', JSON.stringify({ token, gistId }));
 
-    const fugleHint = fugleToken ? '' : '　<span style="color:var(--red-text)">⚠ 未填 Fugle Key，無法更新股價</span>';
     setStatus('conn-status', 'ok',
-      `✓ 連接成功！Gist ID：<span class="gist-id-display">${gistId}</span>${fugleHint}`);
+      `✓ 連接成功！Gist ID：<span class="gist-id-display">${gistId}</span>`);
     $('conn-badge').textContent = '已連接';
     $('conn-badge').style.background = 'var(--green-bg)';
     $('conn-badge').style.color = 'var(--green-text)';
     $('collapse-btn').style.display = 'inline-flex';
     $('main-app').style.display = 'block';
+    renderFugleSection();
     renderTable();
     updateSummary();
 
@@ -482,8 +534,9 @@ async function fetchPrice(code) {
       });
       if (r.ok) {
         const d = await r.json();
-        const price = d.closePrice ?? d.lastPrice ?? d.currentPrice ?? null;
-        if (price) return price;
+        const currentPrice = d.closePrice ?? d.lastPrice ?? d.currentPrice ?? null;
+        const previousClose = d.previousClose ?? null;
+        if (currentPrice) return { currentPrice, previousClose };
       }
     } catch {}
     return null;
@@ -493,25 +546,27 @@ async function fetchPrice(code) {
   const sym = /^\d/.test(rawCode) ? rawCode + '.TW' : rawCode.toUpperCase();
   const yahooUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${sym}?interval=1d&range=1d`;
 
+  const tryProxy = async (url) => {
+    const r = await fetch(url);
+    if (!r.ok) return null;
+    const raw = await r.json();
+    const d = url.includes('allorigins') ? JSON.parse(raw.contents) : raw;
+    const meta = d.chart?.result?.[0]?.meta;
+    if (!meta?.regularMarketPrice) return null;
+    return {
+      currentPrice: meta.regularMarketPrice,
+      previousClose: meta.previousClose ?? meta.chartPreviousClose ?? null
+    };
+  };
+
   try {
-    const proxy = `https://api.allorigins.win/get?url=${encodeURIComponent(yahooUrl)}`;
-    const r = await fetch(proxy);
-    if (r.ok) {
-      const wrapper = await r.json();
-      const d = JSON.parse(wrapper.contents);
-      const price = d.chart?.result?.[0]?.meta?.regularMarketPrice;
-      if (price) return price;
-    }
+    const res = await tryProxy(`https://api.allorigins.win/get?url=${encodeURIComponent(yahooUrl)}`);
+    if (res) return res;
   } catch {}
 
   try {
-    const proxy2 = `https://corsproxy.io/?${encodeURIComponent(yahooUrl)}`;
-    const r = await fetch(proxy2);
-    if (r.ok) {
-      const d = await r.json();
-      const price = d.chart?.result?.[0]?.meta?.regularMarketPrice;
-      if (price) return price;
-    }
+    const res = await tryProxy(`https://corsproxy.io/?${encodeURIComponent(yahooUrl)}`);
+    if (res) return res;
   } catch {}
 
   return null;
@@ -523,8 +578,12 @@ async function refreshPrices() {
   btn.disabled = true;
   let updated = 0;
   for (const s of stocks) {
-    const p = await fetchPrice(s.code);
-    if (p !== null) { s.currentPrice = p; updated++; }
+    const res = await fetchPrice(s.code);
+    if (res !== null) {
+      s.currentPrice = res.currentPrice;
+      s.previousClose = res.previousClose;
+      updated++;
+    }
   }
   await saveGist();
   renderTable();
@@ -549,8 +608,10 @@ async function addStock() {
     setStatus('add-status', 'err', '請填寫所有欄位'); return;
   }
   setStatus('add-status', 'info', '<span class="spinner"></span> 抓取現價中...');
-  const price = await fetchPrice(code);
-  stocks.push({ id: Date.now(), code: code.toUpperCase(), name, shares, cost, currentPrice: price });
+  const res = await fetchPrice(code);
+  stocks.push({ id: Date.now(), code: code.toUpperCase(), name, shares, cost,
+    currentPrice: res?.currentPrice ?? null,
+    previousClose: res?.previousClose ?? null });
   await saveGist();
   renderTable();
   updateSummary();
@@ -604,16 +665,25 @@ async function saveEdit(id) {
 function renderTable() {
   const tbody = $('stock-tbody');
   if (!stocks.length) {
-    tbody.innerHTML = '<tr><td colspan="10" class="empty-state">尚無持股<p>點擊右上角「新增持股」開始記錄</p></td></tr>';
+    tbody.innerHTML = '<tr><td colspan="11" class="empty-state">尚無持股<p>點擊右上角「新增持股」開始記錄</p></td></tr>';
     return;
   }
   tbody.innerHTML = stocks.map(s => {
     const totalCost = s.shares * s.cost;
     const mv = s.currentPrice != null ? s.shares * s.currentPrice : null;
+
+    // 總損益
     const pnl = mv != null ? mv - totalCost : null;
     const pct = mv != null ? (mv / totalCost - 1) * 100 : null;
     const isPos = pnl != null && pnl >= 0;
     const badgeCls = pnl == null ? 'badge-na' : (isPos ? 'badge-pos' : 'badge-neg');
+
+    // 今日損益（現價 vs 昨日收盤）
+    const hasPrev = s.currentPrice != null && s.previousClose != null;
+    const dayPnl = hasPrev ? (s.currentPrice - s.previousClose) * s.shares : null;
+    const dayPct = hasPrev ? (s.currentPrice / s.previousClose - 1) * 100 : null;
+    const dayIsPos = dayPnl != null && dayPnl >= 0;
+    const dayBadgeCls = dayPnl == null ? 'badge-na' : (dayIsPos ? 'badge-pos' : 'badge-neg');
 
     if (editingId === s.id) {
       return `<tr style="background:var(--surface2)">
@@ -622,7 +692,7 @@ function renderTable() {
         <td class="td-right"><input id="edit-shares-${s.id}" type="number" value="${s.shares}" style="width:80px;font-size:12px;padding:4px 6px;border-radius:4px;border:0.5px solid var(--border2);background:var(--surface);color:var(--text);text-align:right;font-family:inherit" /></td>
         <td class="td-right"><input id="edit-cost-${s.id}" type="number" value="${s.cost}" step="0.01" style="width:80px;font-size:12px;padding:4px 6px;border-radius:4px;border:0.5px solid var(--border2);background:var(--surface);color:var(--text);text-align:right;font-family:inherit" /></td>
         <td class="td-right" style="color:var(--text3)">${s.currentPrice != null ? s.currentPrice.toLocaleString('zh-TW', {minimumFractionDigits:2,maximumFractionDigits:2}) : '—'}</td>
-        <td></td><td></td><td></td>
+        <td></td><td></td><td></td><td></td><td></td>
         <td class="td-actions" style="white-space:nowrap">
           <button class="btn btn-primary btn-sm" onclick="saveEdit(${s.id})">儲存</button>
           <button class="btn btn-sm" onclick="cancelEdit()">取消</button>
@@ -635,8 +705,12 @@ function renderTable() {
       <td>${s.name}</td>
       <td class="td-right">${s.shares.toLocaleString()}</td>
       <td class="td-right">${fmt(s.cost)}</td>
-      <td class="td-right">${s.currentPrice != null ? s.currentPrice.toLocaleString('zh-TW', {minimumFractionDigits: 2, maximumFractionDigits: 2}) : '—'}</td>
+      <td class="td-right">${s.currentPrice != null ? s.currentPrice.toLocaleString('zh-TW', {minimumFractionDigits:2,maximumFractionDigits:2}) : '—'}</td>
       <td class="td-right">${mv != null ? fmt(mv) : '—'}</td>
+      <td class="td-right ${dayPnl != null ? (dayIsPos ? 'pos' : 'neg') : ''}" style="font-weight:500">
+        ${dayPnl != null ? (dayPnl >= 0 ? '+' : '') + fmt(dayPnl) : '—'}
+      </td>
+      <td class="td-right"><span class="badge ${dayBadgeCls}">${dayPct != null ? fmtP(dayPct) : '—'}</span></td>
       <td class="td-right ${pnl != null ? (isPos ? 'pos' : 'neg') : ''}" style="font-weight:500">
         ${pnl != null ? (pnl >= 0 ? '+' : '') + fmt(pnl) : '—'}
       </td>
