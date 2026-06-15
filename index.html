@@ -524,10 +524,44 @@ async function removeStock(id) {
   updateSummary();
 }
 
+let editingId = null;
+
+function startEdit(id) {
+  editingId = id;
+  renderTable();
+  // focus first input in edit row
+  const el = document.querySelector(`#edit-code-${id}`);
+  if (el) el.focus();
+}
+
+function cancelEdit() {
+  editingId = null;
+  renderTable();
+}
+
+async function saveEdit(id) {
+  const code = $(`edit-code-${id}`).value.trim();
+  const name = $(`edit-name-${id}`).value.trim();
+  const shares = parseFloat($(`edit-shares-${id}`).value);
+  const cost = parseFloat($(`edit-cost-${id}`).value);
+  if (!code || !name || isNaN(shares) || isNaN(cost)) {
+    alert('請填寫所有欄位'); return;
+  }
+  const s = stocks.find(s => s.id === id);
+  s.code = code.toUpperCase();
+  s.name = name;
+  s.shares = shares;
+  s.cost = cost;
+  editingId = null;
+  await saveGist();
+  renderTable();
+  updateSummary();
+}
+
 function renderTable() {
   const tbody = $('stock-tbody');
   if (!stocks.length) {
-    tbody.innerHTML = '<tr><td colspan="9" class="empty-state">尚無持股<p>點擊右上角「新增持股」開始記錄</p></td></tr>';
+    tbody.innerHTML = '<tr><td colspan="10" class="empty-state">尚無持股<p>點擊右上角「新增持股」開始記錄</p></td></tr>';
     return;
   }
   tbody.innerHTML = stocks.map(s => {
@@ -537,9 +571,24 @@ function renderTable() {
     const pct = mv != null ? (mv / totalCost - 1) * 100 : null;
     const isPos = pnl != null && pnl >= 0;
     const badgeCls = pnl == null ? 'badge-na' : (isPos ? 'badge-pos' : 'badge-neg');
-    const displayCode = /^\d+$/.test(s.code) ? s.code : s.code;
+
+    if (editingId === s.id) {
+      return `<tr style="background:var(--surface2)">
+        <td><input id="edit-code-${s.id}" value="${s.code}" style="width:80px;font-size:12px;padding:4px 6px;border-radius:4px;border:0.5px solid var(--border2);background:var(--surface);color:var(--text);font-family:inherit" /></td>
+        <td><input id="edit-name-${s.id}" value="${s.name}" style="width:80px;font-size:12px;padding:4px 6px;border-radius:4px;border:0.5px solid var(--border2);background:var(--surface);color:var(--text);font-family:inherit" /></td>
+        <td class="td-right"><input id="edit-shares-${s.id}" type="number" value="${s.shares}" style="width:80px;font-size:12px;padding:4px 6px;border-radius:4px;border:0.5px solid var(--border2);background:var(--surface);color:var(--text);text-align:right;font-family:inherit" /></td>
+        <td class="td-right"><input id="edit-cost-${s.id}" type="number" value="${s.cost}" step="0.01" style="width:80px;font-size:12px;padding:4px 6px;border-radius:4px;border:0.5px solid var(--border2);background:var(--surface);color:var(--text);text-align:right;font-family:inherit" /></td>
+        <td class="td-right" style="color:var(--text3)">${s.currentPrice != null ? s.currentPrice.toLocaleString('zh-TW', {minimumFractionDigits:2,maximumFractionDigits:2}) : '—'}</td>
+        <td></td><td></td><td></td>
+        <td class="td-actions" style="white-space:nowrap">
+          <button class="btn btn-primary btn-sm" onclick="saveEdit(${s.id})">儲存</button>
+          <button class="btn btn-sm" onclick="cancelEdit()">取消</button>
+        </td>
+      </tr>`;
+    }
+
     return `<tr>
-      <td class="td-code">${displayCode}</td>
+      <td class="td-code">${s.code}</td>
       <td>${s.name}</td>
       <td class="td-right">${s.shares.toLocaleString()}</td>
       <td class="td-right">${fmt(s.cost)}</td>
@@ -549,7 +598,8 @@ function renderTable() {
         ${pnl != null ? (pnl >= 0 ? '+' : '') + fmt(pnl) : '—'}
       </td>
       <td class="td-right"><span class="badge ${badgeCls}">${pct != null ? fmtP(pct) : '—'}</span></td>
-      <td class="td-actions">
+      <td class="td-actions" style="white-space:nowrap">
+        <button class="btn btn-sm" onclick="startEdit(${s.id})" title="編輯">✎</button>
         <button class="btn btn-danger btn-sm" onclick="removeStock(${s.id})" title="刪除">✕</button>
       </td>
     </tr>`;
