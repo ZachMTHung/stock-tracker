@@ -123,7 +123,7 @@
 
   /* Summary metrics */
   .summary-grid {
-    display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px;
+    display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px;
     margin-bottom: 1.5rem;
   }
   .metric {
@@ -220,7 +220,7 @@
       <h1>📈 存股追蹤</h1>
       <p>連接 GitHub Gist，跨裝置同步持倉資料</p>
     </div>
-    <span class="header-badge" id="conn-badge">未連接</span>
+    <span class="header-badge" id="conn-badge" onclick="toggleSetup()" style="cursor:pointer" title="點擊展開設定">未連接</span>
   </header>
 
   <!-- Setup -->
@@ -276,7 +276,12 @@
         <div class="m-sub" id="s-updated">待更新股價</div>
       </div>
       <div class="metric">
-        <div class="m-label">未實現損益</div>
+        <div class="m-label">今日損益</div>
+        <div class="m-value" id="s-day-pnl">—</div>
+        <div class="m-sub" id="s-day-pct">—</div>
+      </div>
+      <div class="metric">
+        <div class="m-label">總損益</div>
         <div class="m-value" id="s-pnl">—</div>
         <div class="m-sub" id="s-pct">—</div>
       </div>
@@ -288,7 +293,18 @@
     </div>
 
     <div class="toolbar">
-      <span class="toolbar-title">持倉清單</span>
+      <div style="display:flex;align-items:center;gap:10px">
+        <span class="toolbar-title">持倉清單</span>
+        <select id="sort-select" onchange="renderTable()" style="font-size:12px;padding:4px 8px;border-radius:var(--radius-sm);border:0.5px solid var(--border2);background:var(--surface2);color:var(--text);font-family:inherit;cursor:pointer">
+          <option value="default">加入順序</option>
+          <option value="code">代碼 A→Z</option>
+          <option value="pnl-desc">總損益 高→低</option>
+          <option value="pnl-asc">總損益 低→高</option>
+          <option value="daypnl-desc">今日損益 高→低</option>
+          <option value="pct-desc">總報酬率 高→低</option>
+          <option value="cost-desc">持倉成本 高→低</option>
+        </select>
+      </div>
       <div class="toolbar-actions">
         <button class="btn btn-sm" onclick="refreshPrices()" id="refresh-btn">
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 4v6h-6"/><path d="M1 20v-6h6"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
@@ -428,22 +444,26 @@ async function deleteFugleKey() {
 }
 
 // Load saved config from localStorage
-window.onload = () => {
+window.onload = async () => {
   const saved = localStorage.getItem('stock-tracker-config');
   if (saved) {
     const c = JSON.parse(saved);
     if (c.token) $('gh-token').value = c.token;
     if (c.gistId) $('gist-id').value = c.gistId;
+    // 自動重新連接
+    if (c.token && c.gistId) await connectGist(true);
   }
 };
 
-async function connectGist() {
+async function connectGist(silent = false) {
   token = $('gh-token').value.trim();
   gistId = $('gist-id').value.trim();
   if (!token) { setStatus('conn-status', 'err', '請輸入 GitHub Personal Access Token'); return; }
 
-  $('conn-btn').innerHTML = '<span class="spinner"></span> 連接中...';
-  $('conn-btn').disabled = true;
+  if (!silent) {
+    $('conn-btn').innerHTML = '<span class="spinner"></span> 連接中...';
+    $('conn-btn').disabled = true;
+  }
 
   try {
     if (!gistId) {
@@ -486,30 +506,35 @@ async function connectGist() {
     // Save GitHub config to localStorage (not fugle key - that lives in Gist)
     localStorage.setItem('stock-tracker-config', JSON.stringify({ token, gistId }));
 
-    setStatus('conn-status', 'ok',
-      `✓ 連接成功！Gist ID：<span class="gist-id-display">${gistId}</span>`);
-    $('conn-badge').textContent = '已連接';
+    $('conn-badge').textContent = '已連接 ⚙';
     $('conn-badge').style.background = 'var(--green-bg)';
     $('conn-badge').style.color = 'var(--green-text)';
-    $('collapse-btn').style.display = 'inline-flex';
     $('main-app').style.display = 'block';
     renderFugleSection();
     renderTable();
     updateSummary();
+    if (silent) {
+      // 自動連接：收起設定卡片
+      $('setup-card').style.display = 'none';
+    } else {
+      setStatus('conn-status', 'ok',
+        `✓ 連接成功！Gist ID：<span class="gist-id-display">${gistId}</span>`);
+      $('collapse-btn').style.display = 'inline-flex';
+    }
 
   } catch (e) {
     setStatus('conn-status', 'err', '✕ ' + e.message);
   } finally {
-    $('conn-btn').innerHTML = '連接';
-    $('conn-btn').disabled = false;
+    if (!silent) {
+      $('conn-btn').innerHTML = '連接';
+      $('conn-btn').disabled = false;
+    }
   }
 }
 
 function toggleSetup() {
   const card = $('setup-card');
-  const isCollapsed = card.style.display === 'none';
-  card.style.display = isCollapsed ? 'block' : 'none';
-  $('collapse-btn').textContent = isCollapsed ? '收起設定' : '展開設定';
+  card.style.display = card.style.display === 'none' ? 'block' : 'none';
 }
 
 async function saveGist() {
@@ -662,13 +687,28 @@ async function saveEdit(id) {
   updateSummary();
 }
 
+function getSortedStocks() {
+  const sort = $('sort-select')?.value || 'default';
+  const arr = [...stocks];
+  const pnl = s => s.currentPrice != null ? (s.currentPrice - s.cost) * s.shares : null;
+  const dayPnl = s => (s.currentPrice != null && s.previousClose != null) ? (s.currentPrice - s.previousClose) * s.shares : null;
+  const pct = s => s.currentPrice != null ? (s.currentPrice / s.cost - 1) * 100 : null;
+  if (sort === 'code') arr.sort((a,b) => a.code.localeCompare(b.code));
+  else if (sort === 'pnl-desc') arr.sort((a,b) => (pnl(b)??-Infinity)-(pnl(a)??-Infinity));
+  else if (sort === 'pnl-asc') arr.sort((a,b) => (pnl(a)??Infinity)-(pnl(b)??Infinity));
+  else if (sort === 'daypnl-desc') arr.sort((a,b) => (dayPnl(b)??-Infinity)-(dayPnl(a)??-Infinity));
+  else if (sort === 'pct-desc') arr.sort((a,b) => (pct(b)??-Infinity)-(pct(a)??-Infinity));
+  else if (sort === 'cost-desc') arr.sort((a,b) => (b.shares*b.cost)-(a.shares*a.cost));
+  return arr;
+}
+
 function renderTable() {
   const tbody = $('stock-tbody');
   if (!stocks.length) {
     tbody.innerHTML = '<tr><td colspan="11" class="empty-state">尚無持股<p>點擊右上角「新增持股」開始記錄</p></td></tr>';
     return;
   }
-  tbody.innerHTML = stocks.map(s => {
+  tbody.innerHTML = getSortedStocks().map(s => {
     const totalCost = s.shares * s.cost;
     const mv = s.currentPrice != null ? s.shares * s.currentPrice : null;
 
@@ -730,8 +770,26 @@ function updateSummary() {
   const pct = totalCost > 0 ? (pnl / totalCost) * 100 : 0;
   const hasPrices = stocks.some(s => s.currentPrice != null);
 
+  // 今日損益
+  const dayStocks = stocks.filter(s => s.currentPrice != null && s.previousClose != null);
+  const dayPnl = dayStocks.reduce((a, s) => a + (s.currentPrice - s.previousClose) * s.shares, 0);
+  const dayBase = dayStocks.reduce((a, s) => a + s.previousClose * s.shares, 0);
+  const dayPct = dayBase > 0 ? (dayPnl / dayBase) * 100 : 0;
+  const hasDay = dayStocks.length > 0;
+
   $('s-cost').textContent = '$' + fmt(totalCost);
   $('s-value').textContent = hasPrices ? '$' + fmt(totalVal) : '—';
+
+  const dayEl = $('s-day-pnl');
+  if (hasDay) {
+    dayEl.textContent = (dayPnl >= 0 ? '+$' : '-$') + fmt(Math.abs(dayPnl));
+    dayEl.className = 'm-value ' + (dayPnl >= 0 ? 'pos' : 'neg');
+    $('s-day-pct').textContent = fmtP(dayPct);
+  } else {
+    dayEl.textContent = '—'; dayEl.className = 'm-value';
+    $('s-day-pct').textContent = '需更新股價';
+  }
+
   const pnlEl = $('s-pnl');
   if (hasPrices) {
     pnlEl.textContent = (pnl >= 0 ? '+$' : '-$') + fmt(Math.abs(pnl));
