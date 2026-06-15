@@ -500,7 +500,7 @@ async function connectGist(silent = false) {
         if (parsed.updated) {
           const dt = new Date(parsed.updated);
           const dateStr = dt.toLocaleDateString('zh-TW', {month:'2-digit', day:'2-digit'});
-          const timeStr = dt.toLocaleTimeString('zh-TW', {hour:'2-digit', minute:'2-digit'});
+          const timeStr = dt.toLocaleTimeString('zh-TW', {hour:'2-digit', minute:'2-digit', hour12:false});
           const el = $('last-updated');
           if (el) el.textContent = `最後更新 ${dateStr} ${timeStr}`;
         }
@@ -620,7 +620,7 @@ async function refreshPrices() {
   await saveGist();
   renderTable();
   updateSummary();
-  const timeStr = new Date().toLocaleTimeString('zh-TW', {hour:'2-digit', minute:'2-digit'});
+  const timeStr = new Date().toLocaleTimeString('zh-TW', {hour:'2-digit', minute:'2-digit', hour12:false});
   $('last-updated').textContent = `${timeStr} 更新`;
   btn.innerHTML = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 4v6h-6"/><path d="M1 20v-6h6"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg> 更新股價';
   btn.disabled = false;
@@ -784,7 +784,7 @@ function renderTable() {
       <td class="td-right"><span class="badge ${badgeCls}">${pct != null ? fmtP(pct) : '—'}</span></td>
       <td class="td-actions" style="white-space:nowrap">
         <button class="btn btn-sm" onclick="startEdit(${s.id})" title="編輯">✎</button>
-        <button class="btn btn-danger btn-sm" onclick="removeStock(${s.id})" title="刪除">✕</button>
+        <button class="btn btn-danger btn-sm" onclick="removeStock(${s.id})" title="刪除">🗑</button>
       </td>
     </tr>`;
   }).join('');
