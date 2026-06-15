@@ -204,6 +204,11 @@
     margin-top: 1.5rem; padding-top: 1rem; border-top: 0.5px solid var(--border);
   }
 
+  tbody tr.dragging { opacity: 0.4; }
+  tbody tr.drag-over td { border-top: 2px solid var(--blue); }
+  tbody tr { cursor: grab; }
+  tbody tr.editing-row { cursor: default; }
+
   @media (max-width: 640px) {
     .summary-grid { grid-template-columns: repeat(2, 1fr); }
     .form-grid { grid-template-columns: 1fr; }
@@ -273,7 +278,7 @@
       <div class="metric">
         <div class="m-label">目前市值</div>
         <div class="m-value" id="s-value">—</div>
-        <div class="m-sub" id="s-updated">待更新股價</div>
+        <div class="m-sub" id="s-updated">—</div>
       </div>
       <div class="metric">
         <div class="m-label">今日損益</div>
@@ -295,21 +300,16 @@
     <div class="toolbar">
       <div style="display:flex;align-items:center;gap:10px">
         <span class="toolbar-title">持倉清單</span>
-        <select id="sort-select" onchange="renderTable()" style="font-size:12px;padding:4px 8px;border-radius:var(--radius-sm);border:0.5px solid var(--border2);background:var(--surface2);color:var(--text);font-family:inherit;cursor:pointer">
-          <option value="default">加入順序</option>
-          <option value="code">代碼 A→Z</option>
-          <option value="pnl-desc">總損益 高→低</option>
-          <option value="pnl-asc">總損益 低→高</option>
-          <option value="daypnl-desc">今日損益 高→低</option>
-          <option value="pct-desc">總報酬率 高→低</option>
-          <option value="cost-desc">持倉成本 高→低</option>
-        </select>
+        <span style="font-size:11px;color:var(--text3)">可拖曳列調整順序</span>
       </div>
       <div class="toolbar-actions">
-        <button class="btn btn-sm" onclick="refreshPrices()" id="refresh-btn">
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 4v6h-6"/><path d="M1 20v-6h6"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
-          更新股價
-        </button>
+        <div style="display:flex;flex-direction:column;align-items:center;gap:3px">
+          <button class="btn btn-sm" onclick="refreshPrices()" id="refresh-btn">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 4v6h-6"/><path d="M1 20v-6h6"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+            更新股價
+          </button>
+          <span id="last-updated" style="font-size:10px;color:var(--text3);white-space:nowrap"></span>
+        </div>
         <button class="btn btn-sm btn-primary" onclick="toggleAddForm()">
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>
           新增持股
@@ -380,6 +380,7 @@ let token = '', gistId = '', stocks = [];
 const $ = id => document.getElementById(id);
 const fmt = n => Math.round(n).toLocaleString('zh-TW');
 const fmtP = n => (n >= 0 ? '+' : '') + n.toFixed(2) + '%';
+const fmt2 = n => n.toLocaleString('zh-TW', {minimumFractionDigits:2, maximumFractionDigits:2});
 
 function setStatus(el, type, msg) {
   $(el).innerHTML = `<div class="status status-${type}">${msg}</div>`;
@@ -495,8 +496,14 @@ async function connectGist(silent = false) {
       if (raw) {
         const parsed = JSON.parse(raw);
         stocks = parsed.stocks || [];
-        // Use Gist's fugleToken; override if user typed a new one
         fugleToken = parsed.fugleToken || '';
+        if (parsed.updated) {
+          const dt = new Date(parsed.updated);
+          const dateStr = dt.toLocaleDateString('zh-TW', {month:'2-digit', day:'2-digit'});
+          const timeStr = dt.toLocaleTimeString('zh-TW', {hour:'2-digit', minute:'2-digit'});
+          const el = $('last-updated');
+          if (el) el.textContent = `最後更新 ${dateStr} ${timeStr}`;
+        }
       } else {
         stocks = [];
         fugleToken = '';
@@ -613,7 +620,8 @@ async function refreshPrices() {
   await saveGist();
   renderTable();
   updateSummary();
-  $('s-updated').textContent = `${new Date().toLocaleTimeString('zh-TW')} 更新（${updated}/${stocks.length} 筆）`;
+  const timeStr = new Date().toLocaleTimeString('zh-TW', {hour:'2-digit', minute:'2-digit'});
+  $('last-updated').textContent = `${timeStr} 更新`;
   btn.innerHTML = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 4v6h-6"/><path d="M1 20v-6h6"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg> 更新股價';
   btn.disabled = false;
 }
@@ -687,19 +695,38 @@ async function saveEdit(id) {
   updateSummary();
 }
 
-function getSortedStocks() {
-  const sort = $('sort-select')?.value || 'default';
-  const arr = [...stocks];
-  const pnl = s => s.currentPrice != null ? (s.currentPrice - s.cost) * s.shares : null;
-  const dayPnl = s => (s.currentPrice != null && s.previousClose != null) ? (s.currentPrice - s.previousClose) * s.shares : null;
-  const pct = s => s.currentPrice != null ? (s.currentPrice / s.cost - 1) * 100 : null;
-  if (sort === 'code') arr.sort((a,b) => a.code.localeCompare(b.code));
-  else if (sort === 'pnl-desc') arr.sort((a,b) => (pnl(b)??-Infinity)-(pnl(a)??-Infinity));
-  else if (sort === 'pnl-asc') arr.sort((a,b) => (pnl(a)??Infinity)-(pnl(b)??Infinity));
-  else if (sort === 'daypnl-desc') arr.sort((a,b) => (dayPnl(b)??-Infinity)-(dayPnl(a)??-Infinity));
-  else if (sort === 'pct-desc') arr.sort((a,b) => (pct(b)??-Infinity)-(pct(a)??-Infinity));
-  else if (sort === 'cost-desc') arr.sort((a,b) => (b.shares*b.cost)-(a.shares*a.cost));
-  return arr;
+let dragSrcId = null;
+
+function onDragStart(e, id) {
+  dragSrcId = id;
+  e.currentTarget.classList.add('dragging');
+  e.dataTransfer.effectAllowed = 'move';
+}
+
+function onDragEnd(e) {
+  e.currentTarget.classList.remove('dragging');
+  document.querySelectorAll('tbody tr').forEach(r => r.classList.remove('drag-over'));
+}
+
+function onDragOver(e) {
+  e.preventDefault();
+  e.dataTransfer.dropEffect = 'move';
+  document.querySelectorAll('tbody tr').forEach(r => r.classList.remove('drag-over'));
+  e.currentTarget.classList.add('drag-over');
+}
+
+async function onDrop(e, targetId) {
+  e.preventDefault();
+  e.currentTarget.classList.remove('drag-over');
+  if (dragSrcId === targetId) return;
+  const srcIdx = stocks.findIndex(s => s.id === dragSrcId);
+  const tgtIdx = stocks.findIndex(s => s.id === targetId);
+  if (srcIdx === -1 || tgtIdx === -1) return;
+  const [moved] = stocks.splice(srcIdx, 1);
+  stocks.splice(tgtIdx, 0, moved);
+  renderTable();
+  updateSummary();
+  await saveGist();
 }
 
 function renderTable() {
@@ -708,7 +735,7 @@ function renderTable() {
     tbody.innerHTML = '<tr><td colspan="11" class="empty-state">尚無持股<p>點擊右上角「新增持股」開始記錄</p></td></tr>';
     return;
   }
-  tbody.innerHTML = getSortedStocks().map(s => {
+  tbody.innerHTML = stocks.map(s => {
     const totalCost = s.shares * s.cost;
     const mv = s.currentPrice != null ? s.shares * s.currentPrice : null;
 
@@ -726,7 +753,7 @@ function renderTable() {
     const dayBadgeCls = dayPnl == null ? 'badge-na' : (dayIsPos ? 'badge-pos' : 'badge-neg');
 
     if (editingId === s.id) {
-      return `<tr style="background:var(--surface2)">
+      return `<tr class="editing-row" style="background:var(--surface2)">
         <td><input id="edit-code-${s.id}" value="${s.code}" style="width:80px;font-size:12px;padding:4px 6px;border-radius:4px;border:0.5px solid var(--border2);background:var(--surface);color:var(--text);font-family:inherit" /></td>
         <td><input id="edit-name-${s.id}" value="${s.name}" style="width:80px;font-size:12px;padding:4px 6px;border-radius:4px;border:0.5px solid var(--border2);background:var(--surface);color:var(--text);font-family:inherit" /></td>
         <td class="td-right"><input id="edit-shares-${s.id}" type="number" value="${s.shares}" style="width:80px;font-size:12px;padding:4px 6px;border-radius:4px;border:0.5px solid var(--border2);background:var(--surface);color:var(--text);text-align:right;font-family:inherit" /></td>
@@ -740,11 +767,11 @@ function renderTable() {
       </tr>`;
     }
 
-    return `<tr>
+    return `<tr draggable="true" ondragstart="onDragStart(event,${s.id})" ondragend="onDragEnd(event)" ondragover="onDragOver(event)" ondrop="onDrop(event,${s.id})">
       <td class="td-code">${s.code}</td>
       <td>${s.name}</td>
       <td class="td-right">${s.shares.toLocaleString()}</td>
-      <td class="td-right">${fmt(s.cost)}</td>
+      <td class="td-right">${fmt2(s.cost)}</td>
       <td class="td-right">${s.currentPrice != null ? s.currentPrice.toLocaleString('zh-TW', {minimumFractionDigits:2,maximumFractionDigits:2}) : '—'}</td>
       <td class="td-right">${mv != null ? fmt(mv) : '—'}</td>
       <td class="td-right ${dayPnl != null ? (dayIsPos ? 'pos' : 'neg') : ''}" style="font-weight:500">
