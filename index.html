@@ -1,0 +1,561 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>存股追蹤</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg: #f7f7f5;
+    --surface: #ffffff;
+    --surface2: #f1f0ed;
+    --border: rgba(0,0,0,0.1);
+    --border2: rgba(0,0,0,0.18);
+    --text: #1a1a18;
+    --text2: #6b6b68;
+    --text3: #9b9b97;
+    --green: #0F6E56;
+    --green-bg: #E1F5EE;
+    --green-text: #085041;
+    --red: #A32D2D;
+    --red-bg: #FCEBEB;
+    --red-text: #791F1F;
+    --blue: #185FA5;
+    --blue-bg: #E6F1FB;
+    --blue-text: #0C447C;
+    --radius: 10px;
+    --radius-sm: 6px;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #1a1a18;
+      --surface: #252523;
+      --surface2: #2e2e2b;
+      --border: rgba(255,255,255,0.1);
+      --border2: rgba(255,255,255,0.18);
+      --text: #f0efea;
+      --text2: #a0a09b;
+      --text3: #6b6b68;
+      --green-bg: #04342C;
+      --green-text: #9FE1CB;
+      --red-bg: #501313;
+      --red-text: #F7C1C1;
+      --blue-bg: #042C53;
+      --blue-text: #B5D4F4;
+    }
+  }
+
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+    font-size: 14px;
+    line-height: 1.6;
+  }
+
+  .container { max-width: 960px; margin: 0 auto; padding: 2rem 1.25rem; }
+
+  /* Header */
+  .site-header {
+    display: flex; align-items: center; justify-content: space-between;
+    margin-bottom: 2rem; padding-bottom: 1.25rem;
+    border-bottom: 0.5px solid var(--border);
+  }
+  .site-header h1 { font-size: 18px; font-weight: 600; letter-spacing: -0.3px; }
+  .site-header p { font-size: 12px; color: var(--text2); margin-top: 2px; }
+  .header-badge {
+    font-size: 11px; padding: 3px 10px; border-radius: 20px;
+    background: var(--blue-bg); color: var(--blue-text); font-weight: 500;
+  }
+
+  /* Setup card */
+  .card {
+    background: var(--surface); border-radius: var(--radius);
+    border: 0.5px solid var(--border); padding: 1.25rem;
+    margin-bottom: 1.25rem;
+  }
+  .card-title {
+    font-size: 13px; font-weight: 600; color: var(--text);
+    margin-bottom: 1rem; display: flex; align-items: center; gap: 7px;
+  }
+  .card-title svg { color: var(--blue); }
+
+  .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 10px; }
+  .form-group { display: flex; flex-direction: column; gap: 4px; }
+  .form-group label { font-size: 11px; color: var(--text2); font-weight: 500; text-transform: uppercase; letter-spacing: 0.4px; }
+  .form-group input {
+    font-size: 13px; padding: 8px 10px; border-radius: var(--radius-sm);
+    border: 0.5px solid var(--border2); background: var(--surface2);
+    color: var(--text); outline: none; transition: border-color 0.15s, box-shadow 0.15s;
+    font-family: inherit;
+  }
+  .form-group input:focus { border-color: var(--blue); box-shadow: 0 0 0 3px rgba(24,95,165,0.12); }
+  .form-group input::placeholder { color: var(--text3); }
+
+  /* Buttons */
+  .btn {
+    cursor: pointer; border: 0.5px solid var(--border2);
+    border-radius: var(--radius-sm); background: var(--surface);
+    color: var(--text); font-size: 13px; padding: 8px 14px;
+    font-family: inherit; display: inline-flex; align-items: center; gap: 6px;
+    transition: background 0.12s;
+  }
+  .btn:hover { background: var(--surface2); }
+  .btn:active { transform: scale(0.98); }
+  .btn-primary { background: var(--blue); color: #fff; border-color: var(--blue); }
+  .btn-primary:hover { background: var(--blue-text); border-color: var(--blue-text); }
+  .btn-danger { color: var(--red); border-color: rgba(163,45,45,0.25); background: transparent; }
+  .btn-danger:hover { background: var(--red-bg); }
+  .btn-sm { font-size: 12px; padding: 5px 11px; }
+
+  /* Status messages */
+  .status {
+    font-size: 12px; padding: 8px 12px; border-radius: var(--radius-sm);
+    margin-top: 10px; display: flex; align-items: center; gap: 6px;
+  }
+  .status-ok { background: var(--green-bg); color: var(--green-text); }
+  .status-err { background: var(--red-bg); color: var(--red-text); }
+  .status-info { background: var(--blue-bg); color: var(--blue-text); }
+
+  /* Summary metrics */
+  .summary-grid {
+    display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px;
+    margin-bottom: 1.5rem;
+  }
+  .metric {
+    background: var(--surface); border-radius: var(--radius);
+    border: 0.5px solid var(--border); padding: 1rem 1.1rem;
+  }
+  .metric .m-label { font-size: 11px; color: var(--text2); font-weight: 500; text-transform: uppercase; letter-spacing: 0.4px; margin-bottom: 6px; }
+  .metric .m-value { font-size: 20px; font-weight: 600; letter-spacing: -0.5px; }
+  .metric .m-sub { font-size: 11px; color: var(--text3); margin-top: 3px; }
+  .pos { color: var(--green); }
+  .neg { color: var(--red); }
+
+  /* Toolbar */
+  .toolbar {
+    display: flex; align-items: center; justify-content: space-between;
+    margin-bottom: 12px;
+  }
+  .toolbar-title { font-size: 13px; font-weight: 600; }
+  .toolbar-actions { display: flex; gap: 8px; }
+
+  /* Add form */
+  .add-form {
+    background: var(--surface2); border: 0.5px solid var(--border);
+    border-radius: var(--radius); padding: 1rem; margin-bottom: 1rem;
+  }
+  .add-form-title { font-size: 12px; font-weight: 600; color: var(--text2); margin-bottom: 10px; text-transform: uppercase; letter-spacing: 0.4px; }
+  .add-form-grid { display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap: 10px; margin-bottom: 10px; }
+  .add-form-actions { display: flex; gap: 8px; }
+
+  /* Table */
+  .table-wrap { overflow-x: auto; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  thead th {
+    font-size: 11px; font-weight: 500; color: var(--text2); text-align: left;
+    padding: 8px 12px; border-bottom: 0.5px solid var(--border);
+    text-transform: uppercase; letter-spacing: 0.4px; white-space: nowrap;
+  }
+  tbody td { padding: 11px 12px; border-bottom: 0.5px solid var(--border); vertical-align: middle; }
+  tbody tr:last-child td { border-bottom: none; }
+  tbody tr:hover td { background: var(--surface2); }
+  .td-code { font-weight: 600; font-size: 13px; }
+  .td-right { text-align: right; }
+  .td-actions { text-align: right; }
+
+  .badge {
+    display: inline-block; font-size: 11px; font-weight: 600;
+    padding: 2px 7px; border-radius: 4px; white-space: nowrap;
+  }
+  .badge-pos { background: var(--green-bg); color: var(--green-text); }
+  .badge-neg { background: var(--red-bg); color: var(--red-text); }
+  .badge-na { background: var(--surface2); color: var(--text3); }
+
+  .empty-state { text-align: center; padding: 3rem; color: var(--text2); font-size: 13px; }
+  .empty-state p { margin-top: 6px; color: var(--text3); font-size: 12px; }
+
+  /* Spinner */
+  .spinner {
+    display: inline-block; width: 13px; height: 13px;
+    border: 2px solid currentColor; border-top-color: transparent;
+    border-radius: 50%; animation: spin 0.6s linear infinite;
+    vertical-align: middle;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  .gist-hint {
+    font-size: 11px; color: var(--text3); margin-top: 8px;
+    padding: 8px 10px; background: var(--surface2);
+    border-radius: var(--radius-sm); line-height: 1.7;
+  }
+  .gist-id-display {
+    font-family: monospace; font-size: 11px; background: var(--surface2);
+    padding: 2px 6px; border-radius: 4px; color: var(--text2);
+    word-break: break-all;
+  }
+
+  .footer-note {
+    font-size: 11px; color: var(--text3); text-align: center;
+    margin-top: 1.5rem; padding-top: 1rem; border-top: 0.5px solid var(--border);
+  }
+
+  @media (max-width: 640px) {
+    .summary-grid { grid-template-columns: repeat(2, 1fr); }
+    .form-grid { grid-template-columns: 1fr; }
+    .add-form-grid { grid-template-columns: 1fr 1fr; }
+    .site-header { flex-direction: column; align-items: flex-start; gap: 8px; }
+  }
+</style>
+</head>
+<body>
+<div class="container">
+
+  <header class="site-header">
+    <div>
+      <h1>📈 存股追蹤</h1>
+      <p>連接 GitHub Gist，跨裝置同步持倉資料</p>
+    </div>
+    <span class="header-badge" id="conn-badge">未連接</span>
+  </header>
+
+  <!-- Setup -->
+  <div class="card" id="setup-card">
+    <div class="card-title">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+      GitHub Gist 設定
+    </div>
+    <div class="form-grid">
+      <div class="form-group">
+        <label>Personal Access Token</label>
+        <input type="password" id="gh-token" placeholder="ghp_xxxxxxxxxxxxxxxxxxxx" autocomplete="off" />
+      </div>
+      <div class="form-group">
+        <label>Gist ID（留空自動建立）</label>
+        <input type="text" id="gist-id" placeholder="留空則建立新 Gist" />
+      </div>
+    </div>
+    <div style="display:flex;gap:8px;align-items:center">
+      <button class="btn btn-primary" onclick="connectGist()" id="conn-btn">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+        連接 Gist
+      </button>
+      <button class="btn btn-sm" onclick="toggleSetup()" id="collapse-btn" style="display:none">收起</button>
+    </div>
+    <div id="conn-status"></div>
+    <div class="gist-hint">
+      ① 前往 GitHub → Settings → Developer settings → Personal access tokens (classic) → 勾選 <strong>gist</strong> 權限建立 Token<br>
+      ② 第一次留空 Gist ID，連接後會自動建立並顯示 ID，請記下備用<br>
+      ③ 之後在其他裝置只需輸入同樣的 Token + Gist ID 即可讀取同步資料
+    </div>
+  </div>
+
+  <!-- Main app -->
+  <div id="main-app" style="display:none">
+
+    <div class="summary-grid">
+      <div class="metric">
+        <div class="m-label">總成本</div>
+        <div class="m-value" id="s-cost">—</div>
+        <div class="m-sub">累計投入</div>
+      </div>
+      <div class="metric">
+        <div class="m-label">目前市值</div>
+        <div class="m-value" id="s-value">—</div>
+        <div class="m-sub" id="s-updated">待更新股價</div>
+      </div>
+      <div class="metric">
+        <div class="m-label">未實現損益</div>
+        <div class="m-value" id="s-pnl">—</div>
+        <div class="m-sub" id="s-pct">—</div>
+      </div>
+      <div class="metric">
+        <div class="m-label">持股檔數</div>
+        <div class="m-value" id="s-count">0</div>
+        <div class="m-sub">檔</div>
+      </div>
+    </div>
+
+    <div class="toolbar">
+      <span class="toolbar-title">持倉清單</span>
+      <div class="toolbar-actions">
+        <button class="btn btn-sm" onclick="refreshPrices()" id="refresh-btn">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 4v6h-6"/><path d="M1 20v-6h6"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+          更新股價
+        </button>
+        <button class="btn btn-sm btn-primary" onclick="toggleAddForm()">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>
+          新增持股
+        </button>
+      </div>
+    </div>
+
+    <div class="add-form" id="add-form" style="display:none">
+      <div class="add-form-title">新增持股</div>
+      <div class="add-form-grid">
+        <div class="form-group">
+          <label>股票代碼</label>
+          <input type="text" id="f-code" placeholder="2330 / AAPL" />
+        </div>
+        <div class="form-group">
+          <label>名稱</label>
+          <input type="text" id="f-name" placeholder="台積電" />
+        </div>
+        <div class="form-group">
+          <label>持有股數</label>
+          <input type="number" id="f-shares" placeholder="1000" min="0" />
+        </div>
+        <div class="form-group">
+          <label>平均成本（元）</label>
+          <input type="number" id="f-cost" placeholder="500.00" step="0.01" min="0" />
+        </div>
+      </div>
+      <div class="add-form-actions">
+        <button class="btn btn-primary btn-sm" onclick="addStock()">新增</button>
+        <button class="btn btn-sm" onclick="toggleAddForm()">取消</button>
+      </div>
+      <div id="add-status"></div>
+    </div>
+
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>代碼</th>
+            <th>名稱</th>
+            <th class="td-right">股數</th>
+            <th class="td-right">平均成本</th>
+            <th class="td-right">現價</th>
+            <th class="td-right">市值</th>
+            <th class="td-right">損益（元）</th>
+            <th class="td-right">報酬率</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody id="stock-tbody">
+          <tr><td colspan="9" class="empty-state">尚無持股資料<p>連接 Gist 後點擊「新增持股」開始</p></td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="footer-note">
+      股價來自 Yahoo Finance（非即時），僅供參考。台股代碼請輸入數字（如 2330），系統自動加 .TW；美股直接輸入代碼（如 AAPL）。
+    </div>
+  </div>
+
+</div>
+
+<script>
+let token = '', gistId = '', stocks = [];
+
+const $ = id => document.getElementById(id);
+const fmt = n => Math.round(n).toLocaleString('zh-TW');
+const fmtP = n => (n >= 0 ? '+' : '') + n.toFixed(2) + '%';
+
+function setStatus(el, type, msg) {
+  $(el).innerHTML = `<div class="status status-${type}">${msg}</div>`;
+}
+
+// Load saved config from localStorage
+window.onload = () => {
+  const saved = localStorage.getItem('stock-tracker-config');
+  if (saved) {
+    const c = JSON.parse(saved);
+    if (c.token) $('gh-token').value = c.token;
+    if (c.gistId) $('gist-id').value = c.gistId;
+  }
+};
+
+async function connectGist() {
+  token = $('gh-token').value.trim();
+  gistId = $('gist-id').value.trim();
+  if (!token) { setStatus('conn-status', 'err', '請輸入 GitHub Personal Access Token'); return; }
+
+  $('conn-btn').innerHTML = '<span class="spinner"></span> 連接中...';
+  $('conn-btn').disabled = true;
+
+  try {
+    if (!gistId) {
+      // Create new Gist
+      const r = await fetch('https://api.github.com/gists', {
+        method: 'POST',
+        headers: { 'Authorization': 'token ' + token, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          description: '存股追蹤資料（由存股追蹤網站自動建立）',
+          public: false,
+          files: { 'stocks.json': { content: JSON.stringify({ stocks: [], updated: '' }) } }
+        })
+      });
+      if (!r.ok) throw new Error(`建立 Gist 失敗（${r.status}）：Token 是否有 gist 權限？`);
+      const d = await r.json();
+      gistId = d.id;
+      $('gist-id').value = gistId;
+      stocks = [];
+    } else {
+      // Load existing Gist
+      const r = await fetch('https://api.github.com/gists/' + gistId, {
+        headers: { 'Authorization': 'token ' + token }
+      });
+      if (!r.ok) throw new Error(`讀取 Gist 失敗（${r.status}）：Gist ID 是否正確？`);
+      const d = await r.json();
+      const content = d.files['stocks.json']?.content;
+      stocks = content ? (JSON.parse(content).stocks || []) : [];
+    }
+
+    // Save config
+    localStorage.setItem('stock-tracker-config', JSON.stringify({ token, gistId }));
+
+    setStatus('conn-status', 'ok',
+      `✓ 連接成功！Gist ID：<span class="gist-id-display">${gistId}</span>　請記下此 ID 在其他裝置使用`);
+    $('conn-badge').textContent = '已連接';
+    $('conn-badge').style.background = 'var(--green-bg)';
+    $('conn-badge').style.color = 'var(--green-text)';
+    $('collapse-btn').style.display = 'inline-flex';
+    $('main-app').style.display = 'block';
+    renderTable();
+    updateSummary();
+
+  } catch (e) {
+    setStatus('conn-status', 'err', '✕ ' + e.message);
+  } finally {
+    $('conn-btn').innerHTML = '連接 Gist';
+    $('conn-btn').disabled = false;
+  }
+}
+
+function toggleSetup() {
+  const card = $('setup-card');
+  const isCollapsed = card.style.display === 'none';
+  card.style.display = isCollapsed ? 'block' : 'none';
+  $('collapse-btn').textContent = isCollapsed ? '收起設定' : '展開設定';
+}
+
+async function saveGist() {
+  await fetch('https://api.github.com/gists/' + gistId, {
+    method: 'PATCH',
+    headers: { 'Authorization': 'token ' + token, 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      files: { 'stocks.json': { content: JSON.stringify({ stocks, updated: new Date().toISOString() }) } }
+    })
+  });
+}
+
+async function fetchPrice(code) {
+  const sym = /^\d+$/.test(code) ? code + '.TW' : code.toUpperCase();
+  try {
+    const r = await fetch(`https://query1.finance.yahoo.com/v8/finance/chart/${sym}?interval=1d&range=1d`);
+    if (!r.ok) return null;
+    const d = await r.json();
+    return d.chart?.result?.[0]?.meta?.regularMarketPrice || null;
+  } catch { return null; }
+}
+
+async function refreshPrices() {
+  const btn = $('refresh-btn');
+  btn.innerHTML = '<span class="spinner"></span> 更新中';
+  btn.disabled = true;
+  let updated = 0;
+  for (const s of stocks) {
+    const p = await fetchPrice(s.code);
+    if (p !== null) { s.currentPrice = p; updated++; }
+  }
+  await saveGist();
+  renderTable();
+  updateSummary();
+  $('s-updated').textContent = `${new Date().toLocaleTimeString('zh-TW')} 更新`;
+  btn.innerHTML = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 4v6h-6"/><path d="M1 20v-6h6"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg> 更新股價';
+  btn.disabled = false;
+}
+
+function toggleAddForm() {
+  const f = $('add-form');
+  f.style.display = f.style.display === 'none' ? 'block' : 'none';
+  if (f.style.display === 'block') $('f-code').focus();
+}
+
+async function addStock() {
+  const code = $('f-code').value.trim();
+  const name = $('f-name').value.trim();
+  const shares = parseFloat($('f-shares').value);
+  const cost = parseFloat($('f-cost').value);
+  if (!code || !name || isNaN(shares) || isNaN(cost)) {
+    setStatus('add-status', 'err', '請填寫所有欄位'); return;
+  }
+  setStatus('add-status', 'info', '<span class="spinner"></span> 抓取現價中...');
+  const price = await fetchPrice(code);
+  stocks.push({ id: Date.now(), code: code.toUpperCase(), name, shares, cost, currentPrice: price });
+  await saveGist();
+  renderTable();
+  updateSummary();
+  toggleAddForm();
+  ['f-code','f-name','f-shares','f-cost'].forEach(id => $(id).value = '');
+  $('add-status').innerHTML = '';
+}
+
+async function removeStock(id) {
+  if (!confirm('確定要刪除這筆持股？')) return;
+  stocks = stocks.filter(s => s.id !== id);
+  await saveGist();
+  renderTable();
+  updateSummary();
+}
+
+function renderTable() {
+  const tbody = $('stock-tbody');
+  if (!stocks.length) {
+    tbody.innerHTML = '<tr><td colspan="9" class="empty-state">尚無持股<p>點擊右上角「新增持股」開始記錄</p></td></tr>';
+    return;
+  }
+  tbody.innerHTML = stocks.map(s => {
+    const totalCost = s.shares * s.cost;
+    const mv = s.currentPrice != null ? s.shares * s.currentPrice : null;
+    const pnl = mv != null ? mv - totalCost : null;
+    const pct = mv != null ? (mv / totalCost - 1) * 100 : null;
+    const isPos = pnl != null && pnl >= 0;
+    const badgeCls = pnl == null ? 'badge-na' : (isPos ? 'badge-pos' : 'badge-neg');
+    const displayCode = /^\d+$/.test(s.code) ? s.code : s.code;
+    return `<tr>
+      <td class="td-code">${displayCode}</td>
+      <td>${s.name}</td>
+      <td class="td-right">${s.shares.toLocaleString()}</td>
+      <td class="td-right">${fmt(s.cost)}</td>
+      <td class="td-right">${s.currentPrice != null ? s.currentPrice.toLocaleString('zh-TW', {minimumFractionDigits: 2, maximumFractionDigits: 2}) : '—'}</td>
+      <td class="td-right">${mv != null ? fmt(mv) : '—'}</td>
+      <td class="td-right ${pnl != null ? (isPos ? 'pos' : 'neg') : ''}" style="font-weight:500">
+        ${pnl != null ? (pnl >= 0 ? '+' : '') + fmt(pnl) : '—'}
+      </td>
+      <td class="td-right"><span class="badge ${badgeCls}">${pct != null ? fmtP(pct) : '—'}</span></td>
+      <td class="td-actions">
+        <button class="btn btn-danger btn-sm" onclick="removeStock(${s.id})" title="刪除">✕</button>
+      </td>
+    </tr>`;
+  }).join('');
+}
+
+function updateSummary() {
+  const totalCost = stocks.reduce((a, s) => a + s.shares * s.cost, 0);
+  const totalVal = stocks.reduce((a, s) => a + (s.currentPrice != null ? s.shares * s.currentPrice : s.shares * s.cost), 0);
+  const pnl = totalVal - totalCost;
+  const pct = totalCost > 0 ? (pnl / totalCost) * 100 : 0;
+  const hasPrices = stocks.some(s => s.currentPrice != null);
+
+  $('s-cost').textContent = '$' + fmt(totalCost);
+  $('s-value').textContent = hasPrices ? '$' + fmt(totalVal) : '—';
+  const pnlEl = $('s-pnl');
+  if (hasPrices) {
+    pnlEl.textContent = (pnl >= 0 ? '+$' : '-$') + fmt(Math.abs(pnl));
+    pnlEl.className = 'm-value ' + (pnl >= 0 ? 'pos' : 'neg');
+    $('s-pct').textContent = fmtP(pct);
+  } else {
+    pnlEl.textContent = '—'; pnlEl.className = 'm-value';
+    $('s-pct').textContent = '需更新股價';
+  }
+  $('s-count').textContent = stocks.length;
+}
+</script>
+</body>
+</html>
