@@ -446,12 +446,32 @@ async function saveGist() {
 
 async function fetchPrice(code) {
   const sym = /^\d+$/.test(code) ? code + '.TW' : code.toUpperCase();
+  const yahooUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${sym}?interval=1d&range=1d`;
+
+  // 方法一：allorigins proxy
   try {
-    const r = await fetch(`https://query1.finance.yahoo.com/v8/finance/chart/${sym}?interval=1d&range=1d`);
-    if (!r.ok) return null;
-    const d = await r.json();
-    return d.chart?.result?.[0]?.meta?.regularMarketPrice || null;
-  } catch { return null; }
+    const proxy = `https://api.allorigins.win/get?url=${encodeURIComponent(yahooUrl)}`;
+    const r = await fetch(proxy);
+    if (r.ok) {
+      const wrapper = await r.json();
+      const d = JSON.parse(wrapper.contents);
+      const price = d.chart?.result?.[0]?.meta?.regularMarketPrice;
+      if (price) return price;
+    }
+  } catch {}
+
+  // 方法二：corsproxy.io fallback
+  try {
+    const proxy2 = `https://corsproxy.io/?${encodeURIComponent(yahooUrl)}`;
+    const r = await fetch(proxy2);
+    if (r.ok) {
+      const d = await r.json();
+      const price = d.chart?.result?.[0]?.meta?.regularMarketPrice;
+      if (price) return price;
+    }
+  } catch {}
+
+  return null;
 }
 
 async function refreshPrices() {
