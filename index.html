@@ -204,6 +204,10 @@
     margin-top: 1.5rem; padding-top: 1rem; border-top: 0.5px solid var(--border);
   }
 
+  .flip-cell { position:relative; height:20px; overflow:hidden; }
+  .flip-cell span { position:absolute; width:100%; right:0; text-align:right;
+    transition: transform 0.3s ease, opacity 0.3s ease; }
+  .flip-cell span.hidden { transform: translateY(-100%); opacity:0; }
   tbody tr.dragging { opacity: 0.4; }
   tbody tr.drag-over td { border-top: 2px solid var(--blue); }
   tbody tr { cursor: grab; }
@@ -353,6 +357,7 @@
             <th class="td-right">股數</th>
             <th class="td-right">平均成本</th>
             <th class="td-right">現價</th>
+            <th class="td-right">今日漲跌</th>
             <th class="td-right">市值</th>
             <th class="td-right">今日損益（元）</th>
             <th class="td-right">今日報酬率</th>
@@ -362,7 +367,7 @@
           </tr>
         </thead>
         <tbody id="stock-tbody">
-          <tr><td colspan="11" class="empty-state">尚無持股資料<p>連接 Gist 後點擊「新增持股」開始</p></td></tr>
+          <tr><td colspan="12" class="empty-state">尚無持股資料<p>連接 Gist 後點擊「新增持股」開始</p></td></tr>
         </tbody>
       </table>
     </div>
@@ -520,6 +525,7 @@ async function connectGist(silent = false) {
     renderFugleSection();
     renderTable();
     updateSummary();
+    startFlipTimer();
     if (silent) {
       // 自動連接：收起設定卡片
       $('setup-card').style.display = 'none';
@@ -620,6 +626,7 @@ async function refreshPrices() {
   await saveGist();
   renderTable();
   updateSummary();
+  startFlipTimer();
   const timeStr = new Date().toLocaleTimeString('zh-TW', {hour:'2-digit', minute:'2-digit', hour12:false});
   $('last-updated').textContent = `${timeStr} 更新`;
   btn.innerHTML = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 4v6h-6"/><path d="M1 20v-6h6"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg> 更新股價';
@@ -695,6 +702,29 @@ async function saveEdit(id) {
   updateSummary();
 }
 
+// Flip animation timer
+let flipTimer = null;
+let flipState = false; // false = showing price, true = showing pct
+
+function startFlipTimer() {
+  if (flipTimer) clearInterval(flipTimer);
+  flipTimer = setInterval(() => {
+    flipState = !flipState;
+    document.querySelectorAll('.flip-cell').forEach(cell => {
+      const a = cell.querySelector('.flip-a');
+      const b = cell.querySelector('.flip-b');
+      if (!a || !b) return;
+      if (flipState) {
+        a.classList.add('hidden');
+        b.classList.remove('hidden');
+      } else {
+        a.classList.remove('hidden');
+        b.classList.add('hidden');
+      }
+    });
+  }, 5000);
+}
+
 let dragSrcId = null;
 
 function onDragStart(e, id) {
@@ -732,7 +762,7 @@ async function onDrop(e, targetId) {
 function renderTable() {
   const tbody = $('stock-tbody');
   if (!stocks.length) {
-    tbody.innerHTML = '<tr><td colspan="11" class="empty-state">尚無持股<p>點擊右上角「新增持股」開始記錄</p></td></tr>';
+    tbody.innerHTML = '<tr><td colspan="12" class="empty-state">尚無持股<p>點擊右上角「新增持股」開始記錄</p></td></tr>';
     return;
   }
   tbody.innerHTML = stocks.map(s => {
@@ -759,7 +789,7 @@ function renderTable() {
         <td class="td-right"><input id="edit-shares-${s.id}" type="number" value="${s.shares}" style="width:80px;font-size:12px;padding:4px 6px;border-radius:4px;border:0.5px solid var(--border2);background:var(--surface);color:var(--text);text-align:right;font-family:inherit" /></td>
         <td class="td-right"><input id="edit-cost-${s.id}" type="number" value="${s.cost}" step="0.01" style="width:80px;font-size:12px;padding:4px 6px;border-radius:4px;border:0.5px solid var(--border2);background:var(--surface);color:var(--text);text-align:right;font-family:inherit" /></td>
         <td class="td-right" style="color:var(--text3)">${s.currentPrice != null ? s.currentPrice.toLocaleString('zh-TW', {minimumFractionDigits:2,maximumFractionDigits:2}) : '—'}</td>
-        <td></td><td></td><td></td><td></td><td></td>
+        <td></td><td></td><td></td><td></td><td></td><td></td>
         <td class="td-actions" style="white-space:nowrap">
           <button class="btn btn-primary btn-sm" onclick="saveEdit(${s.id})">儲存</button>
           <button class="btn btn-sm" onclick="cancelEdit()">取消</button>
@@ -773,6 +803,12 @@ function renderTable() {
       <td class="td-right">${s.shares.toLocaleString()}</td>
       <td class="td-right">${fmt2(s.cost)}</td>
       <td class="td-right">${s.currentPrice != null ? s.currentPrice.toLocaleString('zh-TW', {minimumFractionDigits:2,maximumFractionDigits:2}) : '—'}</td>
+      <td class="td-right">
+        <div class="flip-cell" id="flip-${s.id}">
+          <span class="flip-a ${hasPrev ? (dayPct >= 0 ? 'pos' : 'neg') : ''}">${hasPrev ? (dayPct >= 0 ? '+' : '') + (s.currentPrice - s.previousClose).toLocaleString('zh-TW',{minimumFractionDigits:2,maximumFractionDigits:2}) : '—'}</span>
+          <span class="flip-b hidden ${hasPrev ? (dayPct >= 0 ? 'pos' : 'neg') : ''}">${hasPrev ? fmtP(dayPct) : '—'}</span>
+        </div>
+      </td>
       <td class="td-right">${mv != null ? fmt(mv) : '—'}</td>
       <td class="td-right ${dayPnl != null ? (dayIsPos ? 'pos' : 'neg') : ''}" style="font-weight:500">
         ${dayPnl != null ? (dayPnl >= 0 ? '+' : '') + fmt(dayPnl) : '—'}
