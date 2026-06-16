@@ -57,7 +57,7 @@
     line-height: 1.6;
   }
 
-  .container { max-width: 960px; margin: 0 auto; padding: 2rem 1.25rem; }
+  .container { max-width: 1280px; margin: 0 auto; padding: 2rem 1.25rem; }
 
   /* Header */
   .site-header {
@@ -204,10 +204,10 @@
     margin-top: 1.5rem; padding-top: 1rem; border-top: 0.5px solid var(--border);
   }
 
-  .flip-cell { position:relative; height:20px; overflow:hidden; }
+  .flip-cell { position:relative; height:20px; }
   .flip-cell span { position:absolute; width:100%; right:0; text-align:right;
-    transition: transform 0.3s ease, opacity 0.3s ease; }
-  .flip-cell span.hidden { transform: translateY(-100%); opacity:0; }
+    transition: opacity 0.4s ease; }
+  .flip-cell span.hidden { opacity:0; pointer-events:none; }
   tbody tr.dragging { opacity: 0.4; }
   tbody tr.drag-over td { border-top: 2px solid var(--blue); }
   tbody tr { cursor: grab; }
