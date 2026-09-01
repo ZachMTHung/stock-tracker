@@ -123,7 +123,7 @@
 
   /* Summary metrics */
   .summary-grid {
-    display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px;
+    display: grid; grid-template-columns: repeat(6, 1fr); gap: 10px;
     margin-bottom: 1.5rem;
   }
   .metric {
@@ -295,6 +295,11 @@
         <div class="m-sub" id="s-pct">—</div>
       </div>
       <div class="metric">
+        <div class="m-label">已實現損益</div>
+        <div class="m-value" id="s-realized">—</div>
+        <div class="m-sub" id="s-realized-count">0 筆已平倉</div>
+      </div>
+      <div class="metric">
         <div class="m-label">持股檔數</div>
         <div class="m-value" id="s-count">0</div>
         <div class="m-sub">檔</div>
@@ -372,6 +377,37 @@
       </table>
     </div>
 
+    <div class="toolbar" style="margin-top:1.75rem">
+      <div style="display:flex;align-items:center;gap:10px">
+        <span class="toolbar-title">已平倉紀錄</span>
+        <span style="font-size:11px;color:var(--text3)" id="closed-count-hint">0 筆</span>
+      </div>
+      <div class="toolbar-actions">
+        <button class="btn btn-sm" onclick="toggleClosedSection()" id="closed-toggle-btn">展開</button>
+      </div>
+    </div>
+
+    <div class="table-wrap" id="closed-section" style="display:none">
+      <table>
+        <thead>
+          <tr>
+            <th>代碼</th>
+            <th>名稱</th>
+            <th class="td-right">平倉股數</th>
+            <th class="td-right">平均成本</th>
+            <th class="td-right">賣出價</th>
+            <th class="td-right">已實現損益</th>
+            <th class="td-right">報酬率</th>
+            <th>平倉日期</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody id="closed-tbody">
+          <tr><td colspan="9" class="empty-state">尚無平倉紀錄</td></tr>
+        </tbody>
+      </table>
+    </div>
+
     <div class="footer-note">
       有填 Fugle API Key 時股價為盤中即時報價；未填時透過 Yahoo Finance proxy，速度較慢且部分代碼可能抓不到。今日損益以昨日收盤價為基準計算。
     </div>
@@ -380,7 +416,7 @@
 </div>
 
 <script>
-let token = '', gistId = '', stocks = [];
+let token = '', gistId = '', stocks = [], closedPositions = [];
 
 const $ = id => document.getElementById(id);
 const fmt = n => Math.round(n).toLocaleString('zh-TW');
@@ -474,7 +510,7 @@ async function connectGist(silent = false) {
   try {
     if (!gistId) {
       // Create new Gist
-      const initData = { stocks: [], fugleToken: '', updated: '' };
+      const initData = { stocks: [], fugleToken: '', closedPositions: [], updated: '' };
       const r = await fetch('https://api.github.com/gists', {
         method: 'POST',
         headers: { 'Authorization': 'token ' + token, 'Content-Type': 'application/json' },
@@ -490,6 +526,7 @@ async function connectGist(silent = false) {
       $('gist-id').value = gistId;
       stocks = [];
       fugleToken = '';
+      closedPositions = [];
     } else {
       // Load existing Gist
       const r = await fetch('https://api.github.com/gists/' + gistId, {
@@ -502,6 +539,7 @@ async function connectGist(silent = false) {
         const parsed = JSON.parse(raw);
         stocks = parsed.stocks || [];
         fugleToken = parsed.fugleToken || '';
+        closedPositions = parsed.closedPositions || [];
         if (parsed.updated) {
           const dt = new Date(parsed.updated);
           const dateStr = dt.toLocaleDateString('zh-TW', {month:'2-digit', day:'2-digit'});
@@ -512,6 +550,7 @@ async function connectGist(silent = false) {
       } else {
         stocks = [];
         fugleToken = '';
+        closedPositions = [];
       }
     }
 
@@ -524,6 +563,7 @@ async function connectGist(silent = false) {
     $('main-app').style.display = 'block';
     renderFugleSection();
     renderTable();
+    renderClosedTable();
     updateSummary();
     startFlipTimer();
     if (silent) {
@@ -555,7 +595,7 @@ async function saveGist() {
     method: 'PATCH',
     headers: { 'Authorization': 'token ' + token, 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      files: { 'stocks.json': { content: JSON.stringify({ stocks, fugleToken, updated: new Date().toISOString() }) } }
+      files: { 'stocks.json': { content: JSON.stringify({ stocks, fugleToken, closedPositions, updated: new Date().toISOString() }) } }
     })
   });
 }
@@ -669,8 +709,10 @@ async function removeStock(id) {
 }
 
 let editingId = null;
+let closingId = null;
 
 function startEdit(id) {
+  closingId = null;
   editingId = id;
   renderTable();
   // focus first input in edit row
@@ -681,6 +723,104 @@ function startEdit(id) {
 function cancelEdit() {
   editingId = null;
   renderTable();
+}
+
+function startClose(id) {
+  editingId = null;
+  closingId = id;
+  renderTable();
+  const el = document.querySelector(`#close-shares-${id}`);
+  if (el) el.focus();
+}
+
+function cancelClose() {
+  closingId = null;
+  renderTable();
+}
+
+function updateClosePreview(id) {
+  const s = stocks.find(x => x.id === id);
+  const el = $(`close-preview-${id}`);
+  if (!s || !el) return;
+  const shares = parseFloat($(`close-shares-${id}`)?.value);
+  const price = parseFloat($(`close-price-${id}`)?.value);
+  if (isNaN(shares) || shares <= 0 || shares > s.shares || isNaN(price) || price < 0) {
+    el.innerHTML = '<span style="color:var(--text3)">請輸入有效的平倉股數與賣出價</span>';
+    return;
+  }
+  const pnl = (price - s.cost) * shares;
+  const pct = s.cost > 0 ? (price / s.cost - 1) * 100 : 0;
+  el.innerHTML = `預估已實現損益：<span class="${pnl >= 0 ? 'pos' : 'neg'}" style="font-weight:600">${pnl >= 0 ? '+' : ''}${fmt(pnl)}（${fmtP(pct)}）</span>`;
+}
+
+async function confirmClose(id) {
+  const s = stocks.find(x => x.id === id);
+  if (!s) return;
+  const shares = parseFloat($(`close-shares-${id}`).value);
+  const price = parseFloat($(`close-price-${id}`).value);
+  if (isNaN(shares) || shares <= 0 || shares > s.shares || isNaN(price) || price < 0) {
+    alert('請輸入有效的平倉股數（不可超過持有股數）與賣出價格'); return;
+  }
+  const realizedPnl = (price - s.cost) * shares;
+  const realizedPct = s.cost > 0 ? (price / s.cost - 1) * 100 : 0;
+  closedPositions.unshift({
+    id: Date.now(),
+    code: s.code, name: s.name,
+    shares, cost: s.cost, sellPrice: price,
+    realizedPnl, realizedPct,
+    closeDate: new Date().toISOString()
+  });
+  if (shares >= s.shares) {
+    stocks = stocks.filter(x => x.id !== id);
+  } else {
+    s.shares -= shares;
+  }
+  closingId = null;
+  await saveGist();
+  renderTable();
+  updateSummary();
+  renderClosedTable();
+}
+
+function toggleClosedSection() {
+  const el = $('closed-section');
+  const btn = $('closed-toggle-btn');
+  const show = el.style.display === 'none';
+  el.style.display = show ? 'block' : 'none';
+  btn.textContent = show ? '收起' : '展開';
+}
+
+function renderClosedTable() {
+  const tbody = $('closed-tbody');
+  $('closed-count-hint').textContent = closedPositions.length + ' 筆';
+  if (!closedPositions.length) {
+    tbody.innerHTML = '<tr><td colspan="9" class="empty-state">尚無平倉紀錄</td></tr>';
+    return;
+  }
+  tbody.innerHTML = closedPositions.map(c => {
+    const isPos = c.realizedPnl >= 0;
+    const dt = new Date(c.closeDate);
+    const dateStr = dt.toLocaleDateString('zh-TW', {year:'numeric', month:'2-digit', day:'2-digit'});
+    return `<tr>
+      <td class="td-code">${c.code}</td>
+      <td>${c.name}</td>
+      <td class="td-right">${c.shares.toLocaleString()}</td>
+      <td class="td-right">${fmt2(c.cost)}</td>
+      <td class="td-right">${fmt2(c.sellPrice)}</td>
+      <td class="td-right ${isPos ? 'pos' : 'neg'}" style="font-weight:500">${isPos ? '+' : ''}${fmt(c.realizedPnl)}</td>
+      <td class="td-right"><span class="badge ${isPos ? 'badge-pos' : 'badge-neg'}">${fmtP(c.realizedPct)}</span></td>
+      <td>${dateStr}</td>
+      <td class="td-actions"><button class="btn btn-danger btn-sm" onclick="removeClosedPosition(${c.id})" title="刪除紀錄">🗑</button></td>
+    </tr>`;
+  }).join('');
+}
+
+async function removeClosedPosition(id) {
+  if (!confirm('確定要刪除這筆平倉紀錄？')) return;
+  closedPositions = closedPositions.filter(c => c.id !== id);
+  await saveGist();
+  renderClosedTable();
+  updateSummary();
 }
 
 async function saveEdit(id) {
@@ -797,6 +937,28 @@ function renderTable() {
       </tr>`;
     }
 
+    if (closingId === s.id) {
+      return `<tr class="editing-row" style="background:var(--surface2)">
+        <td class="td-code">${s.code}</td>
+        <td>${s.name}</td>
+        <td class="td-right">
+          <input id="close-shares-${s.id}" type="number" value="${s.shares}" max="${s.shares}" min="1" step="1"
+            oninput="updateClosePreview(${s.id})"
+            style="width:70px;font-size:12px;padding:4px 6px;border-radius:4px;border:0.5px solid var(--border2);background:var(--surface);color:var(--text);text-align:right;font-family:inherit" />
+        </td>
+        <td class="td-right">
+          <input id="close-price-${s.id}" type="number" value="${s.currentPrice != null ? s.currentPrice : s.cost}" step="0.01" min="0" placeholder="賣出價"
+            oninput="updateClosePreview(${s.id})"
+            style="width:80px;font-size:12px;padding:4px 6px;border-radius:4px;border:0.5px solid var(--border2);background:var(--surface);color:var(--text);text-align:right;font-family:inherit" />
+        </td>
+        <td class="td-right" colspan="7" id="close-preview-${s.id}"></td>
+        <td class="td-actions" style="white-space:nowrap">
+          <button class="btn btn-primary btn-sm" onclick="confirmClose(${s.id})">確認平倉</button>
+          <button class="btn btn-sm" onclick="cancelClose()">取消</button>
+        </td>
+      </tr>`;
+    }
+
     return `<tr draggable="true" ondragstart="onDragStart(event,${s.id})" ondragend="onDragEnd(event)" ondragover="onDragOver(event)" ondrop="onDrop(event,${s.id})">
       <td class="td-code">${s.code}</td>
       <td>${s.name}</td>
@@ -819,11 +981,14 @@ function renderTable() {
       </td>
       <td class="td-right"><span class="badge ${badgeCls}">${pct != null ? fmtP(pct) : '—'}</span></td>
       <td class="td-actions" style="white-space:nowrap">
+        <button class="btn btn-sm" onclick="startClose(${s.id})" title="平倉">🏁</button>
         <button class="btn btn-sm" onclick="startEdit(${s.id})" title="編輯">✎</button>
         <button class="btn btn-danger btn-sm" onclick="removeStock(${s.id})" title="刪除">🗑</button>
       </td>
     </tr>`;
   }).join('');
+
+  if (closingId != null) updateClosePreview(closingId);
 }
 
 function updateSummary() {
@@ -863,6 +1028,17 @@ function updateSummary() {
     $('s-pct').textContent = '需更新股價';
   }
   $('s-count').textContent = stocks.length;
+
+  const realizedTotal = closedPositions.reduce((a, c) => a + c.realizedPnl, 0);
+  const realizedEl = $('s-realized');
+  if (closedPositions.length) {
+    realizedEl.textContent = (realizedTotal >= 0 ? '+$' : '-$') + fmt(Math.abs(realizedTotal));
+    realizedEl.className = 'm-value ' + (realizedTotal >= 0 ? 'pos' : 'neg');
+  } else {
+    realizedEl.textContent = '—';
+    realizedEl.className = 'm-value';
+  }
+  $('s-realized-count').textContent = closedPositions.length + ' 筆已平倉';
 }
 </script>
 </body>
