@@ -396,6 +396,7 @@
             <th class="td-right">平倉股數</th>
             <th class="td-right">平均成本</th>
             <th class="td-right">賣出價</th>
+            <th class="td-right">手續費</th>
             <th class="td-right">已實現損益</th>
             <th class="td-right">報酬率</th>
             <th>平倉日期</th>
@@ -403,7 +404,7 @@
           </tr>
         </thead>
         <tbody id="closed-tbody">
-          <tr><td colspan="9" class="empty-state">尚無平倉紀錄</td></tr>
+          <tr><td colspan="10" class="empty-state">尚無平倉紀錄</td></tr>
         </tbody>
       </table>
     </div>
@@ -744,12 +745,14 @@ function updateClosePreview(id) {
   if (!s || !el) return;
   const shares = parseFloat($(`close-shares-${id}`)?.value);
   const price = parseFloat($(`close-price-${id}`)?.value);
-  if (isNaN(shares) || shares <= 0 || shares > s.shares || isNaN(price) || price < 0) {
-    el.innerHTML = '<span style="color:var(--text3)">請輸入有效的平倉股數與賣出價</span>';
+  const feeRaw = parseFloat($(`close-fee-${id}`)?.value);
+  const fee = isNaN(feeRaw) ? 0 : feeRaw;
+  if (isNaN(shares) || shares <= 0 || shares > s.shares || isNaN(price) || price < 0 || fee < 0) {
+    el.innerHTML = '<span style="color:var(--text3)">請輸入有效的平倉股數、賣出價與手續費</span>';
     return;
   }
-  const pnl = (price - s.cost) * shares;
-  const pct = s.cost > 0 ? (price / s.cost - 1) * 100 : 0;
+  const pnl = (price - s.cost) * shares - fee;
+  const pct = s.cost > 0 ? ((price * shares - fee) / (s.cost * shares) - 1) * 100 : 0;
   el.innerHTML = `預估已實現損益：<span class="${pnl >= 0 ? 'pos' : 'neg'}" style="font-weight:600">${pnl >= 0 ? '+' : ''}${fmt(pnl)}（${fmtP(pct)}）</span>`;
 }
 
@@ -758,15 +761,17 @@ async function confirmClose(id) {
   if (!s) return;
   const shares = parseFloat($(`close-shares-${id}`).value);
   const price = parseFloat($(`close-price-${id}`).value);
-  if (isNaN(shares) || shares <= 0 || shares > s.shares || isNaN(price) || price < 0) {
-    alert('請輸入有效的平倉股數（不可超過持有股數）與賣出價格'); return;
+  const feeRaw = parseFloat($(`close-fee-${id}`).value);
+  const fee = isNaN(feeRaw) ? 0 : feeRaw;
+  if (isNaN(shares) || shares <= 0 || shares > s.shares || isNaN(price) || price < 0 || fee < 0) {
+    alert('請輸入有效的平倉股數（不可超過持有股數）、賣出價格與手續費'); return;
   }
-  const realizedPnl = (price - s.cost) * shares;
-  const realizedPct = s.cost > 0 ? (price / s.cost - 1) * 100 : 0;
+  const realizedPnl = (price - s.cost) * shares - fee;
+  const realizedPct = s.cost > 0 ? ((price * shares - fee) / (s.cost * shares) - 1) * 100 : 0;
   closedPositions.unshift({
     id: Date.now(),
     code: s.code, name: s.name,
-    shares, cost: s.cost, sellPrice: price,
+    shares, cost: s.cost, sellPrice: price, fee,
     realizedPnl, realizedPct,
     closeDate: new Date().toISOString()
   });
@@ -790,14 +795,35 @@ function toggleClosedSection() {
   btn.textContent = show ? '收起' : '展開';
 }
 
+let editingClosedId = null;
+
 function renderClosedTable() {
   const tbody = $('closed-tbody');
   $('closed-count-hint').textContent = closedPositions.length + ' 筆';
   if (!closedPositions.length) {
-    tbody.innerHTML = '<tr><td colspan="9" class="empty-state">尚無平倉紀錄</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="10" class="empty-state">尚無平倉紀錄</td></tr>';
     return;
   }
   tbody.innerHTML = closedPositions.map(c => {
+    const toDateInput = iso => new Date(iso).toISOString().slice(0, 10);
+
+    if (editingClosedId === c.id) {
+      return `<tr class="editing-row" style="background:var(--surface2)">
+        <td><input id="ec-code-${c.id}" value="${c.code}" style="width:70px;font-size:12px;padding:4px 6px;border-radius:4px;border:0.5px solid var(--border2);background:var(--surface);color:var(--text);font-family:inherit" /></td>
+        <td><input id="ec-name-${c.id}" value="${c.name}" style="width:70px;font-size:12px;padding:4px 6px;border-radius:4px;border:0.5px solid var(--border2);background:var(--surface);color:var(--text);font-family:inherit" /></td>
+        <td class="td-right"><input id="ec-shares-${c.id}" type="number" value="${c.shares}" min="1" style="width:70px;font-size:12px;padding:4px 6px;border-radius:4px;border:0.5px solid var(--border2);background:var(--surface);color:var(--text);text-align:right;font-family:inherit" /></td>
+        <td class="td-right"><input id="ec-cost-${c.id}" type="number" value="${c.cost}" step="0.01" min="0" style="width:70px;font-size:12px;padding:4px 6px;border-radius:4px;border:0.5px solid var(--border2);background:var(--surface);color:var(--text);text-align:right;font-family:inherit" /></td>
+        <td class="td-right"><input id="ec-price-${c.id}" type="number" value="${c.sellPrice}" step="0.01" min="0" style="width:70px;font-size:12px;padding:4px 6px;border-radius:4px;border:0.5px solid var(--border2);background:var(--surface);color:var(--text);text-align:right;font-family:inherit" /></td>
+        <td class="td-right"><input id="ec-fee-${c.id}" type="number" value="${c.fee ?? 0}" step="1" min="0" style="width:60px;font-size:12px;padding:4px 6px;border-radius:4px;border:0.5px solid var(--border2);background:var(--surface);color:var(--text);text-align:right;font-family:inherit" /></td>
+        <td colspan="2"></td>
+        <td><input id="ec-date-${c.id}" type="date" value="${toDateInput(c.closeDate)}" style="font-size:12px;padding:4px 6px;border-radius:4px;border:0.5px solid var(--border2);background:var(--surface);color:var(--text);font-family:inherit" /></td>
+        <td class="td-actions" style="white-space:nowrap">
+          <button class="btn btn-primary btn-sm" onclick="saveEditClosed(${c.id})">儲存</button>
+          <button class="btn btn-sm" onclick="cancelEditClosed()">取消</button>
+        </td>
+      </tr>`;
+    }
+
     const isPos = c.realizedPnl >= 0;
     const dt = new Date(c.closeDate);
     const dateStr = dt.toLocaleDateString('zh-TW', {year:'numeric', month:'2-digit', day:'2-digit'});
@@ -807,12 +833,77 @@ function renderClosedTable() {
       <td class="td-right">${c.shares.toLocaleString()}</td>
       <td class="td-right">${fmt2(c.cost)}</td>
       <td class="td-right">${fmt2(c.sellPrice)}</td>
+      <td class="td-right">${fmt(c.fee ?? 0)}</td>
       <td class="td-right ${isPos ? 'pos' : 'neg'}" style="font-weight:500">${isPos ? '+' : ''}${fmt(c.realizedPnl)}</td>
       <td class="td-right"><span class="badge ${isPos ? 'badge-pos' : 'badge-neg'}">${fmtP(c.realizedPct)}</span></td>
       <td>${dateStr}</td>
-      <td class="td-actions"><button class="btn btn-danger btn-sm" onclick="removeClosedPosition(${c.id})" title="刪除紀錄">🗑</button></td>
+      <td class="td-actions" style="white-space:nowrap">
+        <button class="btn btn-sm" onclick="revertClosedPosition(${c.id})" title="復原至持倉">↩</button>
+        <button class="btn btn-sm" onclick="startEditClosed(${c.id})" title="編輯">✎</button>
+        <button class="btn btn-danger btn-sm" onclick="removeClosedPosition(${c.id})" title="刪除紀錄">🗑</button>
+      </td>
     </tr>`;
   }).join('');
+}
+
+function startEditClosed(id) {
+  editingClosedId = id;
+  renderClosedTable();
+  const el = document.querySelector(`#ec-code-${id}`);
+  if (el) el.focus();
+}
+
+function cancelEditClosed() {
+  editingClosedId = null;
+  renderClosedTable();
+}
+
+async function saveEditClosed(id) {
+  const c = closedPositions.find(x => x.id === id);
+  if (!c) return;
+  const code = $(`ec-code-${id}`).value.trim();
+  const name = $(`ec-name-${id}`).value.trim();
+  const shares = parseFloat($(`ec-shares-${id}`).value);
+  const cost = parseFloat($(`ec-cost-${id}`).value);
+  const sellPrice = parseFloat($(`ec-price-${id}`).value);
+  const feeRaw = parseFloat($(`ec-fee-${id}`).value);
+  const fee = isNaN(feeRaw) ? 0 : feeRaw;
+  const dateVal = $(`ec-date-${id}`).value;
+  if (!code || !name || isNaN(shares) || shares <= 0 || isNaN(cost) || cost < 0 || isNaN(sellPrice) || sellPrice < 0 || fee < 0 || !dateVal) {
+    alert('請填寫所有欄位，且股數、成本、賣出價、手續費須為有效數值'); return;
+  }
+  c.code = code.toUpperCase();
+  c.name = name;
+  c.shares = shares;
+  c.cost = cost;
+  c.sellPrice = sellPrice;
+  c.fee = fee;
+  c.closeDate = new Date(dateVal + 'T00:00:00').toISOString();
+  c.realizedPnl = (sellPrice - cost) * shares - fee;
+  c.realizedPct = cost > 0 ? ((sellPrice * shares - fee) / (cost * shares) - 1) * 100 : 0;
+  editingClosedId = null;
+  await saveGist();
+  renderClosedTable();
+  updateSummary();
+}
+
+async function revertClosedPosition(id) {
+  const c = closedPositions.find(x => x.id === id);
+  if (!c) return;
+  if (!confirm(`確定要復原這筆平倉紀錄？將把 ${c.shares.toLocaleString()} 股 ${c.code} 加回持倉。`)) return;
+  const existing = stocks.find(s => s.code === c.code);
+  if (existing) {
+    const mergedShares = existing.shares + c.shares;
+    existing.cost = (existing.shares * existing.cost + c.shares * c.cost) / mergedShares;
+    existing.shares = mergedShares;
+  } else {
+    stocks.push({ id: Date.now(), code: c.code, name: c.name, shares: c.shares, cost: c.cost, currentPrice: null, previousClose: null });
+  }
+  closedPositions = closedPositions.filter(x => x.id !== id);
+  await saveGist();
+  renderTable();
+  renderClosedTable();
+  updateSummary();
 }
 
 async function removeClosedPosition(id) {
@@ -951,7 +1042,12 @@ function renderTable() {
             oninput="updateClosePreview(${s.id})"
             style="width:80px;font-size:12px;padding:4px 6px;border-radius:4px;border:0.5px solid var(--border2);background:var(--surface);color:var(--text);text-align:right;font-family:inherit" />
         </td>
-        <td class="td-right" colspan="7" id="close-preview-${s.id}"></td>
+        <td class="td-right">
+          <input id="close-fee-${s.id}" type="number" value="0" step="1" min="0" placeholder="手續費"
+            oninput="updateClosePreview(${s.id})"
+            style="width:70px;font-size:12px;padding:4px 6px;border-radius:4px;border:0.5px solid var(--border2);background:var(--surface);color:var(--text);text-align:right;font-family:inherit" />
+        </td>
+        <td class="td-right" colspan="6" id="close-preview-${s.id}"></td>
         <td class="td-actions" style="white-space:nowrap">
           <button class="btn btn-primary btn-sm" onclick="confirmClose(${s.id})">確認平倉</button>
           <button class="btn btn-sm" onclick="cancelClose()">取消</button>
