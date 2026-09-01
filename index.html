@@ -199,6 +199,29 @@
     word-break: break-all;
   }
 
+  /* Modal */
+  .modal-overlay {
+    position: fixed; inset: 0; background: rgba(0,0,0,0.45);
+    display: none; align-items: center; justify-content: center;
+    z-index: 1000; padding: 1rem;
+  }
+  .modal-box {
+    background: var(--surface); border-radius: var(--radius);
+    border: 0.5px solid var(--border); width: 100%; max-width: 380px;
+    padding: 1.25rem; box-shadow: 0 10px 40px rgba(0,0,0,0.3);
+  }
+  .modal-header {
+    display: flex; align-items: center; justify-content: space-between;
+    margin-bottom: 14px; font-size: 14px; font-weight: 600;
+  }
+  .modal-close-btn {
+    background: none; border: none; cursor: pointer; color: var(--text2);
+    font-size: 14px; padding: 2px 6px; line-height: 1;
+  }
+  .modal-close-btn:hover { color: var(--text); }
+  .modal-actions { display: flex; gap: 8px; margin-top: 18px; }
+  .modal-actions .btn { flex: 1; justify-content: center; }
+
   .footer-note {
     font-size: 11px; color: var(--text3); text-align: center;
     margin-top: 1.5rem; padding-top: 1rem; border-top: 0.5px solid var(--border);
@@ -416,6 +439,35 @@
 
 </div>
 
+<div class="modal-overlay" id="close-modal-overlay" onclick="if (event.target === this) cancelClose()">
+  <div class="modal-box">
+    <div class="modal-header">
+      <span id="close-modal-title">平倉</span>
+      <button class="modal-close-btn" onclick="cancelClose()" aria-label="關閉">✕</button>
+    </div>
+    <div style="font-size:12px;color:var(--text2);margin-bottom:14px" id="close-modal-held">—</div>
+    <div class="form-grid">
+      <div class="form-group">
+        <label>平倉股數</label>
+        <input id="close-modal-shares" type="number" min="1" step="1" oninput="updateClosePreview()" />
+      </div>
+      <div class="form-group">
+        <label>賣出價</label>
+        <input id="close-modal-price" type="number" min="0" step="0.01" oninput="updateClosePreview()" />
+      </div>
+    </div>
+    <div class="form-group">
+      <label>手續費</label>
+      <input id="close-modal-fee" type="number" min="0" step="1" value="0" oninput="updateClosePreview()" />
+    </div>
+    <div id="close-modal-preview" style="margin-top:14px;font-size:13px"></div>
+    <div class="modal-actions">
+      <button class="btn" onclick="cancelClose()">取消</button>
+      <button class="btn btn-primary" onclick="confirmClose()">確認平倉</button>
+    </div>
+  </div>
+</div>
+
 <script>
 let token = '', gistId = '', stocks = [], closedPositions = [];
 
@@ -485,6 +537,10 @@ async function deleteFugleKey() {
   await saveGist();
   renderFugleSection();
 }
+
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && $('close-modal-overlay').style.display === 'flex') cancelClose();
+});
 
 // Load saved config from localStorage
 window.onload = async () => {
@@ -728,24 +784,32 @@ function cancelEdit() {
 
 function startClose(id) {
   editingId = null;
+  const s = stocks.find(x => x.id === id);
+  if (!s) return;
   closingId = id;
-  renderTable();
-  const el = document.querySelector(`#close-shares-${id}`);
-  if (el) el.focus();
+  $('close-modal-title').textContent = `平倉：${s.code} ${s.name}`;
+  $('close-modal-held').textContent = `目前持有 ${s.shares.toLocaleString()} 股`;
+  $('close-modal-shares').value = s.shares;
+  $('close-modal-shares').max = s.shares;
+  $('close-modal-price').value = s.currentPrice != null ? s.currentPrice : s.cost;
+  $('close-modal-fee').value = 0;
+  $('close-modal-overlay').style.display = 'flex';
+  updateClosePreview();
+  $('close-modal-shares').focus();
 }
 
 function cancelClose() {
   closingId = null;
-  renderTable();
+  $('close-modal-overlay').style.display = 'none';
 }
 
-function updateClosePreview(id) {
-  const s = stocks.find(x => x.id === id);
-  const el = $(`close-preview-${id}`);
+function updateClosePreview() {
+  const s = stocks.find(x => x.id === closingId);
+  const el = $('close-modal-preview');
   if (!s || !el) return;
-  const shares = parseFloat($(`close-shares-${id}`)?.value);
-  const price = parseFloat($(`close-price-${id}`)?.value);
-  const feeRaw = parseFloat($(`close-fee-${id}`)?.value);
+  const shares = parseFloat($('close-modal-shares').value);
+  const price = parseFloat($('close-modal-price').value);
+  const feeRaw = parseFloat($('close-modal-fee').value);
   const fee = isNaN(feeRaw) ? 0 : feeRaw;
   if (isNaN(shares) || shares <= 0 || shares > s.shares || isNaN(price) || price < 0 || fee < 0) {
     el.innerHTML = '<span style="color:var(--text3)">請輸入有效的平倉股數、賣出價與手續費</span>';
@@ -756,12 +820,12 @@ function updateClosePreview(id) {
   el.innerHTML = `預估已實現損益：<span class="${pnl >= 0 ? 'pos' : 'neg'}" style="font-weight:600">${pnl >= 0 ? '+' : ''}${fmt(pnl)}（${fmtP(pct)}）</span>`;
 }
 
-async function confirmClose(id) {
-  const s = stocks.find(x => x.id === id);
+async function confirmClose() {
+  const s = stocks.find(x => x.id === closingId);
   if (!s) return;
-  const shares = parseFloat($(`close-shares-${id}`).value);
-  const price = parseFloat($(`close-price-${id}`).value);
-  const feeRaw = parseFloat($(`close-fee-${id}`).value);
+  const shares = parseFloat($('close-modal-shares').value);
+  const price = parseFloat($('close-modal-price').value);
+  const feeRaw = parseFloat($('close-modal-fee').value);
   const fee = isNaN(feeRaw) ? 0 : feeRaw;
   if (isNaN(shares) || shares <= 0 || shares > s.shares || isNaN(price) || price < 0 || fee < 0) {
     alert('請輸入有效的平倉股數（不可超過持有股數）、賣出價格與手續費'); return;
@@ -776,11 +840,12 @@ async function confirmClose(id) {
     closeDate: new Date().toISOString()
   });
   if (shares >= s.shares) {
-    stocks = stocks.filter(x => x.id !== id);
+    stocks = stocks.filter(x => x.id !== s.id);
   } else {
     s.shares -= shares;
   }
   closingId = null;
+  $('close-modal-overlay').style.display = 'none';
   await saveGist();
   renderTable();
   updateSummary();
@@ -1028,33 +1093,6 @@ function renderTable() {
       </tr>`;
     }
 
-    if (closingId === s.id) {
-      return `<tr class="editing-row" style="background:var(--surface2)">
-        <td class="td-code">${s.code}</td>
-        <td>${s.name}</td>
-        <td class="td-right">
-          <input id="close-shares-${s.id}" type="number" value="${s.shares}" max="${s.shares}" min="1" step="1"
-            oninput="updateClosePreview(${s.id})"
-            style="width:70px;font-size:12px;padding:4px 6px;border-radius:4px;border:0.5px solid var(--border2);background:var(--surface);color:var(--text);text-align:right;font-family:inherit" />
-        </td>
-        <td class="td-right">
-          <input id="close-price-${s.id}" type="number" value="${s.currentPrice != null ? s.currentPrice : s.cost}" step="0.01" min="0" placeholder="賣出價"
-            oninput="updateClosePreview(${s.id})"
-            style="width:80px;font-size:12px;padding:4px 6px;border-radius:4px;border:0.5px solid var(--border2);background:var(--surface);color:var(--text);text-align:right;font-family:inherit" />
-        </td>
-        <td class="td-right">
-          <input id="close-fee-${s.id}" type="number" value="0" step="1" min="0" placeholder="手續費"
-            oninput="updateClosePreview(${s.id})"
-            style="width:70px;font-size:12px;padding:4px 6px;border-radius:4px;border:0.5px solid var(--border2);background:var(--surface);color:var(--text);text-align:right;font-family:inherit" />
-        </td>
-        <td class="td-right" colspan="6" id="close-preview-${s.id}"></td>
-        <td class="td-actions" style="white-space:nowrap">
-          <button class="btn btn-primary btn-sm" onclick="confirmClose(${s.id})">確認平倉</button>
-          <button class="btn btn-sm" onclick="cancelClose()">取消</button>
-        </td>
-      </tr>`;
-    }
-
     return `<tr draggable="true" ondragstart="onDragStart(event,${s.id})" ondragend="onDragEnd(event)" ondragover="onDragOver(event)" ondrop="onDrop(event,${s.id})">
       <td class="td-code">${s.code}</td>
       <td>${s.name}</td>
@@ -1077,14 +1115,12 @@ function renderTable() {
       </td>
       <td class="td-right"><span class="badge ${badgeCls}">${pct != null ? fmtP(pct) : '—'}</span></td>
       <td class="td-actions" style="white-space:nowrap">
-        <button class="btn btn-sm" onclick="startClose(${s.id})" title="平倉">🏁</button>
+        <button class="btn btn-sm" onclick="startClose(${s.id})" title="平倉">💸</button>
         <button class="btn btn-sm" onclick="startEdit(${s.id})" title="編輯">✎</button>
         <button class="btn btn-danger btn-sm" onclick="removeStock(${s.id})" title="刪除">🗑</button>
       </td>
     </tr>`;
   }).join('');
-
-  if (closingId != null) updateClosePreview(closingId);
 }
 
 function updateSummary() {
