@@ -177,6 +177,7 @@
   .badge-pos { background: var(--green-bg); color: var(--green-text); }
   .badge-neg { background: var(--red-bg); color: var(--red-text); }
   .badge-na { background: var(--surface2); color: var(--text3); }
+  .badge-div { background: var(--blue-bg); color: var(--blue-text); }
 
   .empty-state { text-align: center; padding: 3rem; color: var(--text2); font-size: 13px; }
   .empty-state p { margin-top: 6px; color: var(--text3); font-size: 12px; }
@@ -379,7 +380,7 @@
           <input type="number" id="f-shares" placeholder="1000" min="0" />
         </div>
         <div class="form-group">
-          <label>平均成本（元）</label>
+          <label>成交均價（元）</label>
           <input type="number" id="f-cost" placeholder="500.00" step="0.01" min="0" />
         </div>
       </div>
@@ -397,7 +398,7 @@
             <th>代碼</th>
             <th>名稱</th>
             <th class="td-right">股數</th>
-            <th class="td-right">平均成本</th>
+            <th class="td-right">成交均價</th>
             <th class="td-right">現價</th>
             <th class="td-right">今日漲跌</th>
             <th class="td-right">市值</th>
@@ -437,7 +438,7 @@
             <th>代碼</th>
             <th>名稱</th>
             <th class="td-right">平倉股數</th>
-            <th class="td-right">平均成本</th>
+            <th class="td-right">成交均價</th>
             <th class="td-right">賣出價</th>
             <th class="td-right">手續費</th>
             <th class="td-right">已實現損益</th>
@@ -453,7 +454,7 @@
     </div>
 
     <div class="footer-note">
-      有填 Fugle API Key 時股價為盤中即時報價；未填時透過 Yahoo Finance proxy，速度較慢且部分代碼可能抓不到。今日損益以昨日收盤價為基準計算。持倉股數與平均成本由買賣交易紀錄自動加權計算，點列前方箭頭可展開查看買入明細。
+      有填 Fugle API Key 時股價為盤中即時報價；未填時透過 Yahoo Finance proxy，速度較慢且部分代碼可能抓不到。今日損益以昨日收盤價為基準計算。持倉股數與成交均價（不含手續費）由買賣交易紀錄自動加權計算，點列前方箭頭可展開查看交易明細。
     </div>
   </div>
 
@@ -507,9 +508,10 @@
     <div class="form-grid">
       <div class="form-group">
         <label>類型</label>
-        <select id="txn-type">
+        <select id="txn-type" onchange="updateTxnFieldLabels()">
           <option value="buy">買入</option>
           <option value="sell">賣出</option>
+          <option value="dividend">配息</option>
         </select>
       </div>
       <div class="form-group">
@@ -519,16 +521,16 @@
     </div>
     <div class="form-grid">
       <div class="form-group">
-        <label>股數</label>
+        <label id="txn-shares-label">股數</label>
         <input id="txn-shares" type="number" min="1" step="1" placeholder="1000" />
       </div>
       <div class="form-group">
-        <label>價格</label>
+        <label id="txn-price-label">價格</label>
         <input id="txn-price" type="number" min="0" step="0.01" placeholder="500.00" />
       </div>
     </div>
     <div class="form-group">
-      <label>手續費</label>
+      <label id="txn-fee-label">手續費</label>
       <input id="txn-fee" type="number" min="0" step="1" value="0" />
     </div>
     <div id="txn-modal-status"></div>
@@ -769,10 +771,11 @@ async function saveGist() {
   });
 }
 
-// 依交易紀錄（依日期排序）重播計算目前持倉（加權平均成本）與已實現損益
+// 依交易紀錄（依日期排序）重播計算目前持倉（加權成交均價，不含手續費）與已實現損益
 function computeHoldings() {
   const byCode = {};
   const closedRows = [];
+  const dividendRows = [];
   const insufficientDetails = [];
 
   const sorted = [...transactions].sort((a, b) => {
@@ -786,10 +789,13 @@ function computeHoldings() {
     if (t.name) h.name = t.name;
     const fee = t.fee || 0;
     if (t.type === 'buy') {
-      const addedCost = t.shares * t.price + fee;
+      // 成交均價（加權平均）不含手續費
       const newShares = h.shares + t.shares;
-      h.cost = newShares > 0 ? (h.shares * h.cost + addedCost) / newShares : 0;
+      h.cost = newShares > 0 ? (h.shares * h.cost + t.shares * t.price) / newShares : 0;
       h.shares = newShares;
+    } else if (t.type === 'dividend') {
+      // 配息不影響股數與成交均價，僅計入現金收入
+      dividendRows.push({ txnId: t.id, code: t.code, name: t.name, shares: t.shares, perShare: t.price, tax: fee, amount: t.shares * t.price - fee, date: t.date });
     } else {
       const costBasis = h.cost;
       const availableShares = Math.max(h.shares, 0);
@@ -808,7 +814,7 @@ function computeHoldings() {
     .filter(([, h]) => h.shares > 1e-6)
     .map(([code, h]) => ({ code, name: h.name, shares: h.shares, cost: h.cost }));
 
-  return { holdings, closedRows, hadInsufficientShares: insufficientDetails.length > 0, insufficientDetails };
+  return { holdings, closedRows, dividendRows, hadInsufficientShares: insufficientDetails.length > 0, insufficientDetails };
 }
 
 async function fetchPrice(code) {
@@ -1126,20 +1132,23 @@ function handleHoldingRowClick(e, code) {
   toggleExpand(code);
 }
 
-function renderTxnDetailTable(code, { types = ['buy', 'sell'], cutoffISO = null } = {}) {
+const TXN_TYPE_LABELS = { buy: '買入', sell: '賣出', dividend: '配息' };
+const TXN_TYPE_BADGE_CLASS = { buy: 'badge-pos', sell: 'badge-neg', dividend: 'badge-div' };
+
+function renderTxnDetailTable(code, { types = ['buy', 'sell', 'dividend'], cutoffISO = null } = {}) {
   let txns = transactions.filter(t => t.code === code && types.includes(t.type));
   if (cutoffISO) txns = txns.filter(t => new Date(t.date) <= new Date(cutoffISO));
-  txns = txns.sort((a, b) => { const d = new Date(a.date) - new Date(b.date); return d !== 0 ? d : a.id - b.id; });
+  // 最近日期排最上面
+  txns = txns.sort((a, b) => { const d = new Date(b.date) - new Date(a.date); return d !== 0 ? d : b.id - a.id; });
 
   if (!txns.length) return '<div style="font-size:12px;color:var(--text3);padding:0.5rem 0">尚無交易紀錄</div>';
 
   return `<table class="lots-table">
       <thead><tr><th>日期</th><th>類型</th><th class="td-right">股數</th><th class="td-right">價格</th><th class="td-right">手續費</th><th></th></tr></thead>
       <tbody>${txns.map(t => {
-        const isBuy = t.type === 'buy';
         return `<tr>
         <td>${new Date(t.date).toLocaleDateString('zh-TW')}</td>
-        <td><span class="badge ${isBuy ? 'badge-pos' : 'badge-neg'}">${isBuy ? '買入' : '賣出'}</span></td>
+        <td><span class="badge ${TXN_TYPE_BADGE_CLASS[t.type]}">${TXN_TYPE_LABELS[t.type]}</span></td>
         <td class="td-right">${t.shares.toLocaleString()}</td>
         <td class="td-right">${fmt2(t.price)}</td>
         <td class="td-right">${fmt(t.fee || 0)}</td>
@@ -1184,8 +1193,16 @@ function openTxnModal(id = null, prefillCode = null, prefillName = null) {
   $('txn-fee').value = t ? (t.fee || 0) : 0;
   $('txn-date').value = t ? toDateInput(t.date) : toDateInput(new Date().toISOString());
   $('txn-modal-status').innerHTML = '';
+  updateTxnFieldLabels();
   $('txn-modal-overlay').style.display = 'flex';
   $('txn-code').focus();
+}
+
+function updateTxnFieldLabels() {
+  const isDividend = $('txn-type').value === 'dividend';
+  $('txn-shares-label').textContent = isDividend ? '股數（配息基準股數）' : '股數';
+  $('txn-price-label').textContent = isDividend ? '每股配息（元）' : '價格';
+  $('txn-fee-label').textContent = isDividend ? '應扣稅額' : '手續費';
 }
 
 function closeTxnModal() {
@@ -1226,6 +1243,8 @@ async function deleteTxn(id) {
   if (!t) return;
   const msg = t.type === 'sell'
     ? `確定要刪除這筆賣出交易？將把 ${t.shares.toLocaleString()} 股 ${t.code} 復原回持倉。`
+    : t.type === 'dividend'
+    ? `確定要刪除這筆配息紀錄？`
     : `確定要刪除這筆買入交易？可能影響 ${t.code} 後續交易的持倉計算。`;
   if (!confirm(msg)) return;
   transactions = transactions.filter(x => x.id !== id);
