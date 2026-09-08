@@ -1144,14 +1144,18 @@ function renderTxnDetailTable(code, { types = ['buy', 'sell', 'dividend'], cutof
   if (!txns.length) return '<div style="font-size:12px;color:var(--text3);padding:0.5rem 0">尚無交易紀錄</div>';
 
   return `<table class="lots-table">
-      <thead><tr><th>日期</th><th>類型</th><th class="td-right">股數</th><th class="td-right">價格</th><th class="td-right">手續費</th><th></th></tr></thead>
+      <thead><tr><th>日期</th><th>類型</th><th class="td-right">股數</th><th class="td-right">價格</th><th class="td-right">手續費</th><th class="td-right">交易金額</th><th></th></tr></thead>
       <tbody>${txns.map(t => {
+        const fee = t.fee || 0;
+        const gross = t.shares * t.price;
+        const amount = t.type === 'buy' ? gross + fee : gross - fee;
         return `<tr>
         <td>${new Date(t.date).toLocaleDateString('zh-TW')}</td>
         <td><span class="badge ${TXN_TYPE_BADGE_CLASS[t.type]}">${TXN_TYPE_LABELS[t.type]}</span></td>
         <td class="td-right">${t.shares.toLocaleString()}</td>
         <td class="td-right">${fmt2(t.price)}</td>
-        <td class="td-right">${fmt(t.fee || 0)}</td>
+        <td class="td-right">${fmt(fee)}</td>
+        <td class="td-right">${fmt(amount)}</td>
         <td class="td-actions" style="white-space:nowrap">
           <button class="btn btn-sm" onclick="event.stopPropagation();openTxnModal(${t.id})" title="編輯">✎</button>
           <button class="btn btn-danger btn-sm" onclick="event.stopPropagation();deleteTxn(${t.id})" title="刪除">🗑</button>
