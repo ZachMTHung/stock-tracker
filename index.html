@@ -418,11 +418,11 @@
         <span style="font-size:11px;color:var(--text3)" id="closed-count-hint">0 筆</span>
       </div>
       <div class="toolbar-actions">
-        <button class="btn btn-sm" onclick="toggleClosedSection()" id="closed-toggle-btn">展開</button>
+        <button class="btn btn-sm" onclick="toggleClosedSection()" id="closed-toggle-btn">收起</button>
       </div>
     </div>
 
-    <div class="table-wrap" id="closed-section" style="display:none">
+    <div class="table-wrap" id="closed-section" style="display:block">
       <div id="txn-warning" class="status status-err" style="display:none;margin-bottom:10px">
         ⚠ 偵測到有交易的賣出股數超過當時可用股數，部分持倉與損益計算可能不準確，請檢查交易紀錄的日期與股數是否正確。
       </div>
@@ -1104,8 +1104,8 @@ function renderTable() {
       </td>
       <td class="td-right"><span class="badge ${badgeCls}">${pct != null ? fmtP(pct) : '—'}</span></td>
       <td class="td-actions" style="white-space:nowrap">
-        <button class="btn btn-sm" onclick="startClose('${s.code}')" title="平倉">💸</button>
-        <button class="btn btn-danger btn-sm" onclick="removeHolding('${s.code}')" title="刪除此股票所有交易紀錄">🗑</button>
+        <button class="btn btn-sm" onclick="event.stopPropagation();startClose('${s.code}')" title="平倉">💸</button>
+        <button class="btn btn-danger btn-sm" onclick="event.stopPropagation();removeHolding('${s.code}')" title="刪除此股票所有交易紀錄">🗑</button>
       </td>
     </tr>`;
 
@@ -1118,34 +1118,38 @@ function handleHoldingRowClick(e, code) {
   toggleExpand(code);
 }
 
-function renderBuyLotsTable(code, cutoffISO) {
-  let lots = transactions.filter(t => t.code === code && t.type === 'buy');
-  if (cutoffISO) lots = lots.filter(t => new Date(t.date) <= new Date(cutoffISO));
-  lots = lots.sort((a, b) => { const d = new Date(a.date) - new Date(b.date); return d !== 0 ? d : a.id - b.id; });
+function renderTxnDetailTable(code, { types = ['buy', 'sell'], cutoffISO = null } = {}) {
+  let txns = transactions.filter(t => t.code === code && types.includes(t.type));
+  if (cutoffISO) txns = txns.filter(t => new Date(t.date) <= new Date(cutoffISO));
+  txns = txns.sort((a, b) => { const d = new Date(a.date) - new Date(b.date); return d !== 0 ? d : a.id - b.id; });
 
-  if (!lots.length) return '<div style="font-size:12px;color:var(--text3);padding:0.5rem 0">尚無買入紀錄</div>';
+  if (!txns.length) return '<div style="font-size:12px;color:var(--text3);padding:0.5rem 0">尚無交易紀錄</div>';
 
   return `<table class="lots-table">
-      <thead><tr><th>日期</th><th class="td-right">股數</th><th class="td-right">買入價</th><th class="td-right">手續費</th><th></th></tr></thead>
-      <tbody>${lots.map(t => `<tr>
+      <thead><tr><th>日期</th><th>類型</th><th class="td-right">股數</th><th class="td-right">價格</th><th class="td-right">手續費</th><th></th></tr></thead>
+      <tbody>${txns.map(t => {
+        const isBuy = t.type === 'buy';
+        return `<tr>
         <td>${new Date(t.date).toLocaleDateString('zh-TW')}</td>
+        <td><span class="badge ${isBuy ? 'badge-pos' : 'badge-neg'}">${isBuy ? '買入' : '賣出'}</span></td>
         <td class="td-right">${t.shares.toLocaleString()}</td>
         <td class="td-right">${fmt2(t.price)}</td>
         <td class="td-right">${fmt(t.fee || 0)}</td>
         <td class="td-actions" style="white-space:nowrap">
-          <button class="btn btn-sm" onclick="openTxnModal(${t.id})" title="編輯">✎</button>
-          <button class="btn btn-danger btn-sm" onclick="deleteTxn(${t.id})" title="刪除">🗑</button>
+          <button class="btn btn-sm" onclick="event.stopPropagation();openTxnModal(${t.id})" title="編輯">✎</button>
+          <button class="btn btn-danger btn-sm" onclick="event.stopPropagation();deleteTxn(${t.id})" title="刪除">🗑</button>
         </td>
-      </tr>`).join('')}</tbody>
+      </tr>`;
+      }).join('')}</tbody>
     </table>`;
 }
 
 function renderLotsRow(code, name) {
   return `<tr class="expand-row">
     <td colspan="12" style="background:var(--surface2);padding:0.85rem 1.25rem 1rem 2.25rem">
-      <div style="font-size:11px;font-weight:600;color:var(--text2);text-transform:uppercase;letter-spacing:0.4px;margin-bottom:8px">買入明細</div>
-      ${renderBuyLotsTable(code, null)}
-      <button class="btn btn-sm btn-primary" style="margin-top:10px" onclick="openTxnModal(null,'${code}','${name}')">+ 新增買入</button>
+      <div style="font-size:11px;font-weight:600;color:var(--text2);text-transform:uppercase;letter-spacing:0.4px;margin-bottom:8px">交易明細</div>
+      ${renderTxnDetailTable(code)}
+      <button class="btn btn-sm btn-primary" style="margin-top:10px" onclick="event.stopPropagation();openTxnModal(null,'${code}','${name}')">+ 新增交易</button>
     </td>
   </tr>`;
 }
@@ -1256,8 +1260,8 @@ function renderClosedTable() {
       <td class="td-right"><span class="badge ${isPos ? 'badge-pos' : 'badge-neg'}">${fmtP(c.realizedPct)}</span></td>
       <td>${dateStr}</td>
       <td class="td-actions" style="white-space:nowrap">
-        <button class="btn btn-sm" onclick="openTxnModal(${c.txnId})" title="編輯">✎</button>
-        <button class="btn btn-danger btn-sm" onclick="deleteTxn(${c.txnId})" title="刪除">🗑</button>
+        <button class="btn btn-sm" onclick="event.stopPropagation();openTxnModal(${c.txnId})" title="編輯">✎</button>
+        <button class="btn btn-danger btn-sm" onclick="event.stopPropagation();deleteTxn(${c.txnId})" title="刪除">🗑</button>
       </td>
     </tr>`;
 
@@ -1269,7 +1273,7 @@ function renderClosedExpandRow(c) {
   return `<tr class="expand-row">
     <td colspan="10" style="background:var(--surface2);padding:0.85rem 1.25rem 1rem 2.25rem">
       <div style="font-size:11px;font-weight:600;color:var(--text2);text-transform:uppercase;letter-spacing:0.4px;margin-bottom:8px">成本基礎買入明細（賣出當時之前的買入紀錄）</div>
-      ${renderBuyLotsTable(c.code, c.date)}
+      ${renderTxnDetailTable(c.code, { types: ['buy'], cutoffISO: c.date })}
     </td>
   </tr>`;
 }
