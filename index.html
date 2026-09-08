@@ -233,7 +233,8 @@
   .flip-cell span.hidden { opacity:0; pointer-events:none; }
   tbody tr.dragging { opacity: 0.4; }
   tbody tr.drag-over td { border-top: 2px solid var(--blue); }
-  tbody tr { cursor: grab; }
+  tbody tr { cursor: pointer; }
+  tbody tr[draggable="true"] { cursor: grab; }
   tbody tr.editing-row { cursor: default; }
   tbody tr.expand-row { cursor: default; }
 
@@ -910,10 +911,21 @@ async function removeHolding(code) {
 
 let closingCode = null;
 let expandedCodes = new Set();
+let expandedClosedIds = new Set();
 
 function toggleExpand(code) {
   if (expandedCodes.has(code)) expandedCodes.delete(code); else expandedCodes.add(code);
   renderTable();
+}
+
+function toggleClosedExpand(txnId) {
+  if (expandedClosedIds.has(txnId)) expandedClosedIds.delete(txnId); else expandedClosedIds.add(txnId);
+  renderClosedTable();
+}
+
+function handleClosedRowClick(e, txnId) {
+  if (e.target.closest('button')) return;
+  toggleClosedExpand(txnId);
 }
 
 function startClose(code) {
@@ -1070,8 +1082,8 @@ function renderTable() {
 
     const isExpanded = expandedCodes.has(s.code);
 
-    const mainRow = `<tr draggable="true" ondragstart="onDragStart(event,'${s.code}')" ondragend="onDragEnd(event)" ondragover="onDragOver(event)" ondrop="onDrop(event,'${s.code}')">
-      <td class="td-code"><button class="expand-btn" onclick="toggleExpand('${s.code}')" title="展開/收合買入明細">${isExpanded ? '▾' : '▸'}</button>${s.code}</td>
+    const mainRow = `<tr draggable="true" onclick="handleHoldingRowClick(event,'${s.code}')" ondragstart="onDragStart(event,'${s.code}')" ondragend="onDragEnd(event)" ondragover="onDragOver(event)" ondrop="onDrop(event,'${s.code}')">
+      <td class="td-code"><span class="expand-btn" title="展開/收合買入明細">${isExpanded ? '▾' : '▸'}</span>${s.code}</td>
       <td>${s.name}</td>
       <td class="td-right">${s.shares.toLocaleString()}</td>
       <td class="td-right">${fmt2(s.cost)}</td>
@@ -1101,30 +1113,38 @@ function renderTable() {
   }).join('');
 }
 
+function handleHoldingRowClick(e, code) {
+  if (e.target.closest('button')) return;
+  toggleExpand(code);
+}
+
+function renderBuyLotsTable(code, cutoffISO) {
+  let lots = transactions.filter(t => t.code === code && t.type === 'buy');
+  if (cutoffISO) lots = lots.filter(t => new Date(t.date) <= new Date(cutoffISO));
+  lots = lots.sort((a, b) => { const d = new Date(a.date) - new Date(b.date); return d !== 0 ? d : a.id - b.id; });
+
+  if (!lots.length) return '<div style="font-size:12px;color:var(--text3);padding:0.5rem 0">尚無買入紀錄</div>';
+
+  return `<table class="lots-table">
+      <thead><tr><th>日期</th><th class="td-right">股數</th><th class="td-right">買入價</th><th class="td-right">手續費</th><th></th></tr></thead>
+      <tbody>${lots.map(t => `<tr>
+        <td>${new Date(t.date).toLocaleDateString('zh-TW')}</td>
+        <td class="td-right">${t.shares.toLocaleString()}</td>
+        <td class="td-right">${fmt2(t.price)}</td>
+        <td class="td-right">${fmt(t.fee || 0)}</td>
+        <td class="td-actions" style="white-space:nowrap">
+          <button class="btn btn-sm" onclick="openTxnModal(${t.id})" title="編輯">✎</button>
+          <button class="btn btn-danger btn-sm" onclick="deleteTxn(${t.id})" title="刪除">🗑</button>
+        </td>
+      </tr>`).join('')}</tbody>
+    </table>`;
+}
+
 function renderLotsRow(code, name) {
-  const lots = transactions.filter(t => t.code === code && t.type === 'buy')
-    .sort((a, b) => { const d = new Date(a.date) - new Date(b.date); return d !== 0 ? d : a.id - b.id; });
-
-  const lotsHtml = lots.length
-    ? `<table class="lots-table">
-        <thead><tr><th>日期</th><th class="td-right">股數</th><th class="td-right">買入價</th><th class="td-right">手續費</th><th></th></tr></thead>
-        <tbody>${lots.map(t => `<tr>
-          <td>${new Date(t.date).toLocaleDateString('zh-TW')}</td>
-          <td class="td-right">${t.shares.toLocaleString()}</td>
-          <td class="td-right">${fmt2(t.price)}</td>
-          <td class="td-right">${fmt(t.fee || 0)}</td>
-          <td class="td-actions" style="white-space:nowrap">
-            <button class="btn btn-sm" onclick="openTxnModal(${t.id})" title="編輯">✎</button>
-            <button class="btn btn-danger btn-sm" onclick="deleteTxn(${t.id})" title="刪除">🗑</button>
-          </td>
-        </tr>`).join('')}</tbody>
-      </table>`
-    : '<div style="font-size:12px;color:var(--text3);padding:0.5rem 0">尚無買入紀錄</div>';
-
   return `<tr class="expand-row">
     <td colspan="12" style="background:var(--surface2);padding:0.85rem 1.25rem 1rem 2.25rem">
       <div style="font-size:11px;font-weight:600;color:var(--text2);text-transform:uppercase;letter-spacing:0.4px;margin-bottom:8px">買入明細</div>
-      ${lotsHtml}
+      ${renderBuyLotsTable(code, null)}
       <button class="btn btn-sm btn-primary" style="margin-top:10px" onclick="openTxnModal(null,'${code}','${name}')">+ 新增買入</button>
     </td>
   </tr>`;
@@ -1223,8 +1243,10 @@ function renderClosedTable() {
     const isPos = c.realizedPnl >= 0;
     const dt = new Date(c.date);
     const dateStr = dt.toLocaleDateString('zh-TW', {year:'numeric', month:'2-digit', day:'2-digit'});
-    return `<tr>
-      <td class="td-code">${c.code}</td>
+    const isExpanded = expandedClosedIds.has(c.txnId);
+
+    const mainRow = `<tr onclick="handleClosedRowClick(event,${c.txnId})">
+      <td class="td-code"><span class="expand-btn" title="展開/收合成本買入明細">${isExpanded ? '▾' : '▸'}</span>${c.code}</td>
       <td>${c.name}</td>
       <td class="td-right">${c.shares.toLocaleString()}</td>
       <td class="td-right">${fmt2(c.cost)}</td>
@@ -1238,7 +1260,18 @@ function renderClosedTable() {
         <button class="btn btn-danger btn-sm" onclick="deleteTxn(${c.txnId})" title="刪除">🗑</button>
       </td>
     </tr>`;
+
+    return mainRow + (isExpanded ? renderClosedExpandRow(c) : '');
   }).join('');
+}
+
+function renderClosedExpandRow(c) {
+  return `<tr class="expand-row">
+    <td colspan="10" style="background:var(--surface2);padding:0.85rem 1.25rem 1rem 2.25rem">
+      <div style="font-size:11px;font-weight:600;color:var(--text2);text-transform:uppercase;letter-spacing:0.4px;margin-bottom:8px">成本基礎買入明細（賣出當時之前的買入紀錄）</div>
+      ${renderBuyLotsTable(c.code, c.date)}
+    </td>
+  </tr>`;
 }
 
 function updateSummary() {
