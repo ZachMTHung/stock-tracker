@@ -85,15 +85,15 @@
   .card-title svg { color: var(--blue); }
 
   .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 10px; }
-  .form-group { display: flex; flex-direction: column; gap: 4px; }
+  .form-group { display: flex; flex-direction: column; gap: 4px; margin-bottom: 10px; }
   .form-group label { font-size: 11px; color: var(--text2); font-weight: 500; text-transform: uppercase; letter-spacing: 0.4px; }
-  .form-group input {
+  .form-group input, .form-group select {
     font-size: 13px; padding: 8px 10px; border-radius: var(--radius-sm);
     border: 0.5px solid var(--border2); background: var(--surface2);
     color: var(--text); outline: none; transition: border-color 0.15s, box-shadow 0.15s;
     font-family: inherit;
   }
-  .form-group input:focus { border-color: var(--blue); box-shadow: 0 0 0 3px rgba(24,95,165,0.12); }
+  .form-group input:focus, .form-group select:focus { border-color: var(--blue); box-shadow: 0 0 0 3px rgba(24,95,165,0.12); }
   .form-group input::placeholder { color: var(--text3); }
 
   /* Buttons */
@@ -332,7 +332,7 @@
     <div class="toolbar">
       <div style="display:flex;align-items:center;gap:10px">
         <span class="toolbar-title">持倉清單</span>
-        <span style="font-size:11px;color:var(--text3)">可拖曳列調整順序</span>
+        <span style="font-size:11px;color:var(--text3)">可拖曳列調整順序，由買賣交易紀錄自動彙總計算</span>
       </div>
       <div class="toolbar-actions">
         <div style="display:flex;flex-direction:column;align-items:center;gap:3px">
@@ -350,7 +350,7 @@
     </div>
 
     <div class="add-form" id="add-form" style="display:none">
-      <div class="add-form-title">新增持股</div>
+      <div class="add-form-title">新增持股（快速新增一筆買入交易）</div>
       <div class="add-form-grid">
         <div class="form-group">
           <label>股票代碼</label>
@@ -395,45 +395,52 @@
           </tr>
         </thead>
         <tbody id="stock-tbody">
-          <tr><td colspan="12" class="empty-state">尚無持股資料<p>連接 Gist 後點擊「新增持股」開始</p></td></tr>
+          <tr><td colspan="12" class="empty-state">尚無持股資料<p>連接 Gist 後點擊「新增持股」或到下方新增交易紀錄開始</p></td></tr>
         </tbody>
       </table>
     </div>
 
     <div class="toolbar" style="margin-top:1.75rem">
       <div style="display:flex;align-items:center;gap:10px">
-        <span class="toolbar-title">已平倉紀錄</span>
-        <span style="font-size:11px;color:var(--text3)" id="closed-count-hint">0 筆</span>
+        <span class="toolbar-title">交易紀錄</span>
+        <span style="font-size:11px;color:var(--text3)" id="txn-count-hint">0 筆</span>
       </div>
       <div class="toolbar-actions">
-        <button class="btn btn-sm" onclick="toggleClosedSection()" id="closed-toggle-btn">展開</button>
+        <button class="btn btn-sm btn-primary" onclick="openTxnModal()">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>
+          新增交易
+        </button>
+        <button class="btn btn-sm" onclick="toggleTxnSection()" id="txn-toggle-btn">展開</button>
       </div>
     </div>
 
-    <div class="table-wrap" id="closed-section" style="display:none">
+    <div class="table-wrap" id="txn-section" style="display:none">
+      <div id="txn-warning" class="status status-err" style="display:none;margin-bottom:10px">
+        ⚠ 偵測到有交易的賣出股數超過當時可用股數，部分持倉與損益計算可能不準確，請檢查交易紀錄的日期與股數是否正確。
+      </div>
       <table>
         <thead>
           <tr>
+            <th>日期</th>
+            <th>類型</th>
             <th>代碼</th>
             <th>名稱</th>
-            <th class="td-right">平倉股數</th>
-            <th class="td-right">平均成本</th>
-            <th class="td-right">賣出價</th>
+            <th class="td-right">股數</th>
+            <th class="td-right">價格</th>
             <th class="td-right">手續費</th>
             <th class="td-right">已實現損益</th>
             <th class="td-right">報酬率</th>
-            <th>平倉日期</th>
             <th></th>
           </tr>
         </thead>
-        <tbody id="closed-tbody">
-          <tr><td colspan="10" class="empty-state">尚無平倉紀錄</td></tr>
+        <tbody id="txn-tbody">
+          <tr><td colspan="10" class="empty-state">尚無交易紀錄</td></tr>
         </tbody>
       </table>
     </div>
 
     <div class="footer-note">
-      有填 Fugle API Key 時股價為盤中即時報價；未填時透過 Yahoo Finance proxy，速度較慢且部分代碼可能抓不到。今日損益以昨日收盤價為基準計算。
+      有填 Fugle API Key 時股價為盤中即時報價；未填時透過 Yahoo Finance proxy，速度較慢且部分代碼可能抓不到。今日損益以昨日收盤價為基準計算。持倉股數與平均成本由買賣交易紀錄自動加權計算。
     </div>
   </div>
 
@@ -460,7 +467,7 @@
       <label>手續費</label>
       <input id="close-modal-fee" type="number" min="0" step="1" value="0" oninput="updateClosePreview()" />
     </div>
-    <div id="close-modal-preview" style="margin-top:14px;font-size:13px"></div>
+    <div id="close-modal-preview" style="margin-top:6px;font-size:13px"></div>
     <div class="modal-actions">
       <button class="btn" onclick="cancelClose()">取消</button>
       <button class="btn btn-primary" onclick="confirmClose()">確認平倉</button>
@@ -468,13 +475,67 @@
   </div>
 </div>
 
+<div class="modal-overlay" id="txn-modal-overlay" onclick="if (event.target === this) closeTxnModal()">
+  <div class="modal-box">
+    <div class="modal-header">
+      <span id="txn-modal-title">新增交易</span>
+      <button class="modal-close-btn" onclick="closeTxnModal()" aria-label="關閉">✕</button>
+    </div>
+    <div class="form-grid">
+      <div class="form-group">
+        <label>股票代碼</label>
+        <input id="txn-code" type="text" placeholder="2330 / AAPL" />
+      </div>
+      <div class="form-group">
+        <label>名稱</label>
+        <input id="txn-name" type="text" placeholder="台積電" />
+      </div>
+    </div>
+    <div class="form-grid">
+      <div class="form-group">
+        <label>類型</label>
+        <select id="txn-type">
+          <option value="buy">買入</option>
+          <option value="sell">賣出</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label>日期</label>
+        <input id="txn-date" type="date" />
+      </div>
+    </div>
+    <div class="form-grid">
+      <div class="form-group">
+        <label>股數</label>
+        <input id="txn-shares" type="number" min="1" step="1" placeholder="1000" />
+      </div>
+      <div class="form-group">
+        <label>價格</label>
+        <input id="txn-price" type="number" min="0" step="0.01" placeholder="500.00" />
+      </div>
+    </div>
+    <div class="form-group">
+      <label>手續費</label>
+      <input id="txn-fee" type="number" min="0" step="1" value="0" />
+    </div>
+    <div id="txn-modal-status"></div>
+    <div class="modal-actions">
+      <button class="btn" onclick="closeTxnModal()">取消</button>
+      <button class="btn btn-primary" onclick="saveTxnModal()">儲存</button>
+    </div>
+  </div>
+</div>
+
 <script>
-let token = '', gistId = '', stocks = [], closedPositions = [];
+let token = '', gistId = '', transactions = [], holdingOrder = [], prices = {};
+let idCounter = Date.now();
+function nextId() { return idCounter++; }
 
 const $ = id => document.getElementById(id);
 const fmt = n => Math.round(n).toLocaleString('zh-TW');
 const fmtP = n => (n >= 0 ? '+' : '') + n.toFixed(2) + '%';
 const fmt2 = n => n.toLocaleString('zh-TW', {minimumFractionDigits:2, maximumFractionDigits:2});
+const toDateInput = iso => new Date(iso).toISOString().slice(0, 10);
 
 function setStatus(el, type, msg) {
   $(el).innerHTML = `<div class="status status-${type}">${msg}</div>`;
@@ -492,8 +553,7 @@ function renderFugleSection() {
     display.innerHTML = `
       <div style="display:flex;gap:8px;align-items:flex-end">
         <div class="form-group" style="flex:1">
-          <input type="password" id="fugle-input" placeholder="填入 Fugle API Key" autocomplete="off"
-            style="font-size:13px;padding:8px 10px;border-radius:var(--radius-sm);border:0.5px solid var(--border2);background:var(--surface2);color:var(--text);outline:none;width:100%;font-family:inherit" />
+          <input type="password" id="fugle-input" placeholder="填入 Fugle API Key" autocomplete="off" />
         </div>
         <button class="btn btn-sm btn-primary" onclick="saveFugleKey()">儲存</button>
       </div>`;
@@ -522,8 +582,7 @@ function editFugleKey() {
   display.innerHTML = `
     <div style="display:flex;gap:8px;align-items:flex-end">
       <div class="form-group" style="flex:1">
-        <input type="password" id="fugle-input" placeholder="輸入新的 Fugle API Key" autocomplete="off"
-          style="font-size:13px;padding:8px 10px;border-radius:var(--radius-sm);border:0.5px solid var(--border2);background:var(--surface2);color:var(--text);outline:none;width:100%;font-family:inherit" />
+        <input type="password" id="fugle-input" placeholder="輸入新的 Fugle API Key" autocomplete="off" />
       </div>
       <button class="btn btn-sm btn-primary" onclick="saveFugleKey()">儲存</button>
       <button class="btn btn-sm" onclick="renderFugleSection()">取消</button>
@@ -539,7 +598,9 @@ async function deleteFugleKey() {
 }
 
 document.addEventListener('keydown', (e) => {
-  if (e.key === 'Escape' && $('close-modal-overlay').style.display === 'flex') cancelClose();
+  if (e.key !== 'Escape') return;
+  if ($('close-modal-overlay').style.display === 'flex') cancelClose();
+  if ($('txn-modal-overlay').style.display === 'flex') closeTxnModal();
 });
 
 // Load saved config from localStorage
@@ -554,6 +615,30 @@ window.onload = async () => {
   }
 };
 
+// 將舊格式（stocks + closedPositions）轉換成交易紀錄格式
+function migrateLegacyData(parsed) {
+  const legacyStocks = parsed.stocks || [];
+  const legacyClosed = parsed.closedPositions || [];
+  const newTransactions = [];
+  const newPrices = {};
+  const newHoldingOrder = [];
+
+  for (const s of legacyStocks) {
+    const codeClosed = legacyClosed.filter(c => c.code === s.code);
+    const minCloseTime = codeClosed.length ? Math.min(...codeClosed.map(c => new Date(c.closeDate).getTime())) : null;
+    const buyDate = minCloseTime != null ? new Date(minCloseTime - 86400000).toISOString() : new Date().toISOString();
+    newTransactions.push({ id: nextId(), code: s.code, name: s.name, type: 'buy', shares: s.shares, price: s.cost, fee: 0, date: buyDate });
+    if (s.currentPrice != null || s.previousClose != null) {
+      newPrices[s.code] = { currentPrice: s.currentPrice ?? null, previousClose: s.previousClose ?? null };
+    }
+    newHoldingOrder.push(s.code);
+  }
+  for (const c of legacyClosed) {
+    newTransactions.push({ id: nextId(), code: c.code, name: c.name, type: 'sell', shares: c.shares, price: c.sellPrice, fee: c.fee || 0, date: c.closeDate });
+  }
+  return { transactions: newTransactions, prices: newPrices, holdingOrder: newHoldingOrder };
+}
+
 async function connectGist(silent = false) {
   token = $('gh-token').value.trim();
   gistId = $('gist-id').value.trim();
@@ -564,10 +649,12 @@ async function connectGist(silent = false) {
     $('conn-btn').disabled = true;
   }
 
+  let migrated = false;
+
   try {
     if (!gistId) {
       // Create new Gist
-      const initData = { stocks: [], fugleToken: '', closedPositions: [], updated: '' };
+      const initData = { transactions: [], holdingOrder: [], prices: {}, fugleToken: '', updated: '' };
       const r = await fetch('https://api.github.com/gists', {
         method: 'POST',
         headers: { 'Authorization': 'token ' + token, 'Content-Type': 'application/json' },
@@ -581,9 +668,10 @@ async function connectGist(silent = false) {
       const d = await r.json();
       gistId = d.id;
       $('gist-id').value = gistId;
-      stocks = [];
+      transactions = [];
+      holdingOrder = [];
+      prices = {};
       fugleToken = '';
-      closedPositions = [];
     } else {
       // Load existing Gist
       const r = await fetch('https://api.github.com/gists/' + gistId, {
@@ -594,9 +682,18 @@ async function connectGist(silent = false) {
       const raw = d.files['stocks.json']?.content;
       if (raw) {
         const parsed = JSON.parse(raw);
-        stocks = parsed.stocks || [];
         fugleToken = parsed.fugleToken || '';
-        closedPositions = parsed.closedPositions || [];
+        if (parsed.transactions) {
+          transactions = parsed.transactions || [];
+          holdingOrder = parsed.holdingOrder || [];
+          prices = parsed.prices || {};
+        } else {
+          const migratedData = migrateLegacyData(parsed);
+          transactions = migratedData.transactions;
+          holdingOrder = migratedData.holdingOrder;
+          prices = migratedData.prices;
+          migrated = true;
+        }
         if (parsed.updated) {
           const dt = new Date(parsed.updated);
           const dateStr = dt.toLocaleDateString('zh-TW', {month:'2-digit', day:'2-digit'});
@@ -605,9 +702,10 @@ async function connectGist(silent = false) {
           if (el) el.textContent = `最後更新 ${dateStr} ${timeStr}`;
         }
       } else {
-        stocks = [];
+        transactions = [];
+        holdingOrder = [];
+        prices = {};
         fugleToken = '';
-        closedPositions = [];
       }
     }
 
@@ -620,15 +718,16 @@ async function connectGist(silent = false) {
     $('main-app').style.display = 'block';
     renderFugleSection();
     renderTable();
-    renderClosedTable();
+    renderTxnTable();
     updateSummary();
     startFlipTimer();
+    if (migrated) await saveGist();
     if (silent) {
       // 自動連接：收起設定卡片
       $('setup-card').style.display = 'none';
     } else {
       setStatus('conn-status', 'ok',
-        `✓ 連接成功！Gist ID：<span class="gist-id-display">${gistId}</span>`);
+        `✓ 連接成功！Gist ID：<span class="gist-id-display">${gistId}</span>${migrated ? '（已自動將舊版持倉資料轉換為交易紀錄）' : ''}`);
       $('collapse-btn').style.display = 'inline-flex';
     }
 
@@ -652,9 +751,48 @@ async function saveGist() {
     method: 'PATCH',
     headers: { 'Authorization': 'token ' + token, 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      files: { 'stocks.json': { content: JSON.stringify({ stocks, fugleToken, closedPositions, updated: new Date().toISOString() }) } }
+      files: { 'stocks.json': { content: JSON.stringify({ transactions, holdingOrder, prices, fugleToken, updated: new Date().toISOString() }) } }
     })
   });
+}
+
+// 依交易紀錄（依日期排序）重播計算目前持倉（加權平均成本）與已實現損益
+function computeHoldings() {
+  const byCode = {};
+  const closedRows = [];
+  let hadInsufficientShares = false;
+
+  const sorted = [...transactions].sort((a, b) => {
+    const d = new Date(a.date) - new Date(b.date);
+    return d !== 0 ? d : a.id - b.id;
+  });
+
+  for (const t of sorted) {
+    if (!byCode[t.code]) byCode[t.code] = { shares: 0, cost: 0, name: t.name };
+    const h = byCode[t.code];
+    if (t.name) h.name = t.name;
+    const fee = t.fee || 0;
+    if (t.type === 'buy') {
+      const addedCost = t.shares * t.price + fee;
+      const newShares = h.shares + t.shares;
+      h.cost = newShares > 0 ? (h.shares * h.cost + addedCost) / newShares : 0;
+      h.shares = newShares;
+    } else {
+      const costBasis = h.cost;
+      if (t.shares > h.shares + 1e-6) hadInsufficientShares = true;
+      const sellShares = Math.min(t.shares, Math.max(h.shares, 0));
+      const realizedPnl = (t.price - costBasis) * sellShares - fee;
+      const realizedPct = costBasis > 0 ? ((t.price * sellShares - fee) / (costBasis * sellShares) - 1) * 100 : 0;
+      h.shares -= sellShares;
+      closedRows.push({ txnId: t.id, code: t.code, name: t.name, shares: t.shares, cost: costBasis, sellPrice: t.price, fee, realizedPnl, realizedPct, date: t.date });
+    }
+  }
+
+  const holdings = Object.entries(byCode)
+    .filter(([, h]) => h.shares > 1e-6)
+    .map(([code, h]) => ({ code, name: h.name, shares: h.shares, cost: h.cost }));
+
+  return { holdings, closedRows, hadInsufficientShares };
 }
 
 async function fetchPrice(code) {
@@ -711,14 +849,10 @@ async function refreshPrices() {
   const btn = $('refresh-btn');
   btn.innerHTML = '<span class="spinner"></span> 更新中';
   btn.disabled = true;
-  let updated = 0;
-  for (const s of stocks) {
-    const res = await fetchPrice(s.code);
-    if (res !== null) {
-      s.currentPrice = res.currentPrice;
-      s.previousClose = res.previousClose;
-      updated++;
-    }
+  const { holdings } = computeHoldings();
+  for (const h of holdings) {
+    const res = await fetchPrice(h.code);
+    if (res !== null) prices[h.code] = { currentPrice: res.currentPrice, previousClose: res.previousClose };
   }
   await saveGist();
   renderTable();
@@ -737,61 +871,49 @@ function toggleAddForm() {
 }
 
 async function addStock() {
-  const code = $('f-code').value.trim();
+  const code = $('f-code').value.trim().toUpperCase();
   const name = $('f-name').value.trim();
   const shares = parseFloat($('f-shares').value);
   const cost = parseFloat($('f-cost').value);
-  if (!code || !name || isNaN(shares) || isNaN(cost)) {
+  if (!code || !name || isNaN(shares) || shares <= 0 || isNaN(cost) || cost < 0) {
     setStatus('add-status', 'err', '請填寫所有欄位'); return;
   }
   setStatus('add-status', 'info', '<span class="spinner"></span> 抓取現價中...');
   const res = await fetchPrice(code);
-  stocks.push({ id: Date.now(), code: code.toUpperCase(), name, shares, cost,
-    currentPrice: res?.currentPrice ?? null,
-    previousClose: res?.previousClose ?? null });
+  if (res) prices[code] = { currentPrice: res.currentPrice, previousClose: res.previousClose };
+  transactions.push({ id: nextId(), code, name, type: 'buy', shares, price: cost, fee: 0, date: new Date().toISOString() });
   await saveGist();
   renderTable();
+  renderTxnTable();
   updateSummary();
   toggleAddForm();
   ['f-code','f-name','f-shares','f-cost'].forEach(id => $(id).value = '');
   $('add-status').innerHTML = '';
 }
 
-async function removeStock(id) {
-  if (!confirm('確定要刪除這筆持股？')) return;
-  stocks = stocks.filter(s => s.id !== id);
+async function removeHolding(code) {
+  if (!confirm(`確定要刪除 ${code} 的所有交易紀錄？此操作無法復原。`)) return;
+  transactions = transactions.filter(t => t.code !== code);
+  holdingOrder = holdingOrder.filter(c => c !== code);
   await saveGist();
   renderTable();
+  renderTxnTable();
   updateSummary();
 }
 
-let editingId = null;
-let closingId = null;
+let closingCode = null;
 
-function startEdit(id) {
-  closingId = null;
-  editingId = id;
-  renderTable();
-  // focus first input in edit row
-  const el = document.querySelector(`#edit-code-${id}`);
-  if (el) el.focus();
-}
-
-function cancelEdit() {
-  editingId = null;
-  renderTable();
-}
-
-function startClose(id) {
-  editingId = null;
-  const s = stocks.find(x => x.id === id);
-  if (!s) return;
-  closingId = id;
-  $('close-modal-title').textContent = `平倉：${s.code} ${s.name}`;
-  $('close-modal-held').textContent = `目前持有 ${s.shares.toLocaleString()} 股`;
-  $('close-modal-shares').value = s.shares;
-  $('close-modal-shares').max = s.shares;
-  $('close-modal-price').value = s.currentPrice != null ? s.currentPrice : s.cost;
+function startClose(code) {
+  const { holdings } = computeHoldings();
+  const h = holdings.find(x => x.code === code);
+  if (!h) return;
+  closingCode = code;
+  const p = prices[code] || {};
+  $('close-modal-title').textContent = `平倉：${h.code} ${h.name}`;
+  $('close-modal-held').textContent = `目前持有 ${h.shares.toLocaleString()} 股`;
+  $('close-modal-shares').value = h.shares;
+  $('close-modal-shares').max = h.shares;
+  $('close-modal-price').value = p.currentPrice != null ? p.currentPrice : h.cost;
   $('close-modal-fee').value = 0;
   $('close-modal-overlay').style.display = 'flex';
   updateClosePreview();
@@ -799,202 +921,45 @@ function startClose(id) {
 }
 
 function cancelClose() {
-  closingId = null;
+  closingCode = null;
   $('close-modal-overlay').style.display = 'none';
 }
 
 function updateClosePreview() {
-  const s = stocks.find(x => x.id === closingId);
+  const { holdings } = computeHoldings();
+  const h = holdings.find(x => x.code === closingCode);
   const el = $('close-modal-preview');
-  if (!s || !el) return;
+  if (!h || !el) return;
   const shares = parseFloat($('close-modal-shares').value);
   const price = parseFloat($('close-modal-price').value);
   const feeRaw = parseFloat($('close-modal-fee').value);
   const fee = isNaN(feeRaw) ? 0 : feeRaw;
-  if (isNaN(shares) || shares <= 0 || shares > s.shares || isNaN(price) || price < 0 || fee < 0) {
+  if (isNaN(shares) || shares <= 0 || shares > h.shares + 1e-9 || isNaN(price) || price < 0 || fee < 0) {
     el.innerHTML = '<span style="color:var(--text3)">請輸入有效的平倉股數、賣出價與手續費</span>';
     return;
   }
-  const pnl = (price - s.cost) * shares - fee;
-  const pct = s.cost > 0 ? ((price * shares - fee) / (s.cost * shares) - 1) * 100 : 0;
+  const pnl = (price - h.cost) * shares - fee;
+  const pct = h.cost > 0 ? ((price * shares - fee) / (h.cost * shares) - 1) * 100 : 0;
   el.innerHTML = `預估已實現損益：<span class="${pnl >= 0 ? 'pos' : 'neg'}" style="font-weight:600">${pnl >= 0 ? '+' : ''}${fmt(pnl)}（${fmtP(pct)}）</span>`;
 }
 
 async function confirmClose() {
-  const s = stocks.find(x => x.id === closingId);
-  if (!s) return;
+  const { holdings } = computeHoldings();
+  const h = holdings.find(x => x.code === closingCode);
+  if (!h) return;
   const shares = parseFloat($('close-modal-shares').value);
   const price = parseFloat($('close-modal-price').value);
   const feeRaw = parseFloat($('close-modal-fee').value);
   const fee = isNaN(feeRaw) ? 0 : feeRaw;
-  if (isNaN(shares) || shares <= 0 || shares > s.shares || isNaN(price) || price < 0 || fee < 0) {
+  if (isNaN(shares) || shares <= 0 || shares > h.shares + 1e-9 || isNaN(price) || price < 0 || fee < 0) {
     alert('請輸入有效的平倉股數（不可超過持有股數）、賣出價格與手續費'); return;
   }
-  const realizedPnl = (price - s.cost) * shares - fee;
-  const realizedPct = s.cost > 0 ? ((price * shares - fee) / (s.cost * shares) - 1) * 100 : 0;
-  closedPositions.unshift({
-    id: Date.now(),
-    code: s.code, name: s.name,
-    shares, cost: s.cost, sellPrice: price, fee,
-    realizedPnl, realizedPct,
-    closeDate: new Date().toISOString()
-  });
-  if (shares >= s.shares) {
-    stocks = stocks.filter(x => x.id !== s.id);
-  } else {
-    s.shares -= shares;
-  }
-  closingId = null;
+  transactions.push({ id: nextId(), code: h.code, name: h.name, type: 'sell', shares, price, fee, date: new Date().toISOString() });
+  closingCode = null;
   $('close-modal-overlay').style.display = 'none';
   await saveGist();
   renderTable();
-  updateSummary();
-  renderClosedTable();
-}
-
-function toggleClosedSection() {
-  const el = $('closed-section');
-  const btn = $('closed-toggle-btn');
-  const show = el.style.display === 'none';
-  el.style.display = show ? 'block' : 'none';
-  btn.textContent = show ? '收起' : '展開';
-}
-
-let editingClosedId = null;
-
-function renderClosedTable() {
-  const tbody = $('closed-tbody');
-  $('closed-count-hint').textContent = closedPositions.length + ' 筆';
-  if (!closedPositions.length) {
-    tbody.innerHTML = '<tr><td colspan="10" class="empty-state">尚無平倉紀錄</td></tr>';
-    return;
-  }
-  tbody.innerHTML = closedPositions.map(c => {
-    const toDateInput = iso => new Date(iso).toISOString().slice(0, 10);
-
-    if (editingClosedId === c.id) {
-      return `<tr class="editing-row" style="background:var(--surface2)">
-        <td><input id="ec-code-${c.id}" value="${c.code}" style="width:70px;font-size:12px;padding:4px 6px;border-radius:4px;border:0.5px solid var(--border2);background:var(--surface);color:var(--text);font-family:inherit" /></td>
-        <td><input id="ec-name-${c.id}" value="${c.name}" style="width:70px;font-size:12px;padding:4px 6px;border-radius:4px;border:0.5px solid var(--border2);background:var(--surface);color:var(--text);font-family:inherit" /></td>
-        <td class="td-right"><input id="ec-shares-${c.id}" type="number" value="${c.shares}" min="1" style="width:70px;font-size:12px;padding:4px 6px;border-radius:4px;border:0.5px solid var(--border2);background:var(--surface);color:var(--text);text-align:right;font-family:inherit" /></td>
-        <td class="td-right"><input id="ec-cost-${c.id}" type="number" value="${c.cost}" step="0.01" min="0" style="width:70px;font-size:12px;padding:4px 6px;border-radius:4px;border:0.5px solid var(--border2);background:var(--surface);color:var(--text);text-align:right;font-family:inherit" /></td>
-        <td class="td-right"><input id="ec-price-${c.id}" type="number" value="${c.sellPrice}" step="0.01" min="0" style="width:70px;font-size:12px;padding:4px 6px;border-radius:4px;border:0.5px solid var(--border2);background:var(--surface);color:var(--text);text-align:right;font-family:inherit" /></td>
-        <td class="td-right"><input id="ec-fee-${c.id}" type="number" value="${c.fee ?? 0}" step="1" min="0" style="width:60px;font-size:12px;padding:4px 6px;border-radius:4px;border:0.5px solid var(--border2);background:var(--surface);color:var(--text);text-align:right;font-family:inherit" /></td>
-        <td colspan="2"></td>
-        <td><input id="ec-date-${c.id}" type="date" value="${toDateInput(c.closeDate)}" style="font-size:12px;padding:4px 6px;border-radius:4px;border:0.5px solid var(--border2);background:var(--surface);color:var(--text);font-family:inherit" /></td>
-        <td class="td-actions" style="white-space:nowrap">
-          <button class="btn btn-primary btn-sm" onclick="saveEditClosed(${c.id})">儲存</button>
-          <button class="btn btn-sm" onclick="cancelEditClosed()">取消</button>
-        </td>
-      </tr>`;
-    }
-
-    const isPos = c.realizedPnl >= 0;
-    const dt = new Date(c.closeDate);
-    const dateStr = dt.toLocaleDateString('zh-TW', {year:'numeric', month:'2-digit', day:'2-digit'});
-    return `<tr>
-      <td class="td-code">${c.code}</td>
-      <td>${c.name}</td>
-      <td class="td-right">${c.shares.toLocaleString()}</td>
-      <td class="td-right">${fmt2(c.cost)}</td>
-      <td class="td-right">${fmt2(c.sellPrice)}</td>
-      <td class="td-right">${fmt(c.fee ?? 0)}</td>
-      <td class="td-right ${isPos ? 'pos' : 'neg'}" style="font-weight:500">${isPos ? '+' : ''}${fmt(c.realizedPnl)}</td>
-      <td class="td-right"><span class="badge ${isPos ? 'badge-pos' : 'badge-neg'}">${fmtP(c.realizedPct)}</span></td>
-      <td>${dateStr}</td>
-      <td class="td-actions" style="white-space:nowrap">
-        <button class="btn btn-sm" onclick="revertClosedPosition(${c.id})" title="復原至持倉">↩</button>
-        <button class="btn btn-sm" onclick="startEditClosed(${c.id})" title="編輯">✎</button>
-        <button class="btn btn-danger btn-sm" onclick="removeClosedPosition(${c.id})" title="刪除紀錄">🗑</button>
-      </td>
-    </tr>`;
-  }).join('');
-}
-
-function startEditClosed(id) {
-  editingClosedId = id;
-  renderClosedTable();
-  const el = document.querySelector(`#ec-code-${id}`);
-  if (el) el.focus();
-}
-
-function cancelEditClosed() {
-  editingClosedId = null;
-  renderClosedTable();
-}
-
-async function saveEditClosed(id) {
-  const c = closedPositions.find(x => x.id === id);
-  if (!c) return;
-  const code = $(`ec-code-${id}`).value.trim();
-  const name = $(`ec-name-${id}`).value.trim();
-  const shares = parseFloat($(`ec-shares-${id}`).value);
-  const cost = parseFloat($(`ec-cost-${id}`).value);
-  const sellPrice = parseFloat($(`ec-price-${id}`).value);
-  const feeRaw = parseFloat($(`ec-fee-${id}`).value);
-  const fee = isNaN(feeRaw) ? 0 : feeRaw;
-  const dateVal = $(`ec-date-${id}`).value;
-  if (!code || !name || isNaN(shares) || shares <= 0 || isNaN(cost) || cost < 0 || isNaN(sellPrice) || sellPrice < 0 || fee < 0 || !dateVal) {
-    alert('請填寫所有欄位，且股數、成本、賣出價、手續費須為有效數值'); return;
-  }
-  c.code = code.toUpperCase();
-  c.name = name;
-  c.shares = shares;
-  c.cost = cost;
-  c.sellPrice = sellPrice;
-  c.fee = fee;
-  c.closeDate = new Date(dateVal + 'T00:00:00').toISOString();
-  c.realizedPnl = (sellPrice - cost) * shares - fee;
-  c.realizedPct = cost > 0 ? ((sellPrice * shares - fee) / (cost * shares) - 1) * 100 : 0;
-  editingClosedId = null;
-  await saveGist();
-  renderClosedTable();
-  updateSummary();
-}
-
-async function revertClosedPosition(id) {
-  const c = closedPositions.find(x => x.id === id);
-  if (!c) return;
-  if (!confirm(`確定要復原這筆平倉紀錄？將把 ${c.shares.toLocaleString()} 股 ${c.code} 加回持倉。`)) return;
-  const existing = stocks.find(s => s.code === c.code);
-  if (existing) {
-    const mergedShares = existing.shares + c.shares;
-    existing.cost = (existing.shares * existing.cost + c.shares * c.cost) / mergedShares;
-    existing.shares = mergedShares;
-  } else {
-    stocks.push({ id: Date.now(), code: c.code, name: c.name, shares: c.shares, cost: c.cost, currentPrice: null, previousClose: null });
-  }
-  closedPositions = closedPositions.filter(x => x.id !== id);
-  await saveGist();
-  renderTable();
-  renderClosedTable();
-  updateSummary();
-}
-
-async function removeClosedPosition(id) {
-  if (!confirm('確定要刪除這筆平倉紀錄？')) return;
-  closedPositions = closedPositions.filter(c => c.id !== id);
-  await saveGist();
-  renderClosedTable();
-  updateSummary();
-}
-
-async function saveEdit(id) {
-  const code = $(`edit-code-${id}`).value.trim();
-  const name = $(`edit-name-${id}`).value.trim();
-  const shares = parseFloat($(`edit-shares-${id}`).value);
-  const cost = parseFloat($(`edit-cost-${id}`).value);
-  if (!code || !name || isNaN(shares) || isNaN(cost)) {
-    alert('請填寫所有欄位'); return;
-  }
-  const s = stocks.find(s => s.id === id);
-  s.code = code.toUpperCase();
-  s.name = name;
-  s.shares = shares;
-  s.cost = cost;
-  editingId = null;
-  await saveGist();
-  renderTable();
+  renderTxnTable();
   updateSummary();
 }
 
@@ -1021,10 +986,10 @@ function startFlipTimer() {
   }, 5000);
 }
 
-let dragSrcId = null;
+let dragSrcCode = null;
 
-function onDragStart(e, id) {
-  dragSrcId = id;
+function onDragStart(e, code) {
+  dragSrcCode = code;
   e.currentTarget.classList.add('dragging');
   e.dataTransfer.effectAllowed = 'move';
 }
@@ -1041,27 +1006,39 @@ function onDragOver(e) {
   e.currentTarget.classList.add('drag-over');
 }
 
-async function onDrop(e, targetId) {
+async function onDrop(e, targetCode) {
   e.preventDefault();
   e.currentTarget.classList.remove('drag-over');
-  if (dragSrcId === targetId) return;
-  const srcIdx = stocks.findIndex(s => s.id === dragSrcId);
-  const tgtIdx = stocks.findIndex(s => s.id === targetId);
+  if (dragSrcCode === targetCode) return;
+  const srcIdx = holdingOrder.indexOf(dragSrcCode);
+  const tgtIdx = holdingOrder.indexOf(targetCode);
   if (srcIdx === -1 || tgtIdx === -1) return;
-  const [moved] = stocks.splice(srcIdx, 1);
-  stocks.splice(tgtIdx, 0, moved);
+  const [moved] = holdingOrder.splice(srcIdx, 1);
+  holdingOrder.splice(tgtIdx, 0, moved);
   renderTable();
-  updateSummary();
   await saveGist();
 }
 
 function renderTable() {
   const tbody = $('stock-tbody');
-  if (!stocks.length) {
-    tbody.innerHTML = '<tr><td colspan="12" class="empty-state">尚無持股<p>點擊右上角「新增持股」開始記錄</p></td></tr>';
+  const { holdings } = computeHoldings();
+  const byCode = Object.fromEntries(holdings.map(h => [h.code, h]));
+
+  // 讓 holdingOrder 與目前實際持有的代碼保持同步（新代碼補到最後，已出清的代碼移除）
+  holdingOrder = [...holdingOrder.filter(c => byCode[c]), ...Object.keys(byCode).filter(c => !holdingOrder.includes(c))];
+
+  const rows = holdingOrder.map(code => {
+    const h = byCode[code];
+    const p = prices[code] || {};
+    return { code, name: h.name, shares: h.shares, cost: h.cost, currentPrice: p.currentPrice ?? null, previousClose: p.previousClose ?? null };
+  });
+
+  if (!rows.length) {
+    tbody.innerHTML = '<tr><td colspan="12" class="empty-state">尚無持股<p>點擊右上角「新增持股」或到下方新增交易紀錄開始</p></td></tr>';
     return;
   }
-  tbody.innerHTML = stocks.map(s => {
+
+  tbody.innerHTML = rows.map(s => {
     const totalCost = s.shares * s.cost;
     const mv = s.currentPrice != null ? s.shares * s.currentPrice : null;
 
@@ -1078,29 +1055,14 @@ function renderTable() {
     const dayIsPos = dayPnl != null && dayPnl >= 0;
     const dayBadgeCls = dayPnl == null ? 'badge-na' : (dayIsPos ? 'badge-pos' : 'badge-neg');
 
-    if (editingId === s.id) {
-      return `<tr class="editing-row" style="background:var(--surface2)">
-        <td><input id="edit-code-${s.id}" value="${s.code}" style="width:80px;font-size:12px;padding:4px 6px;border-radius:4px;border:0.5px solid var(--border2);background:var(--surface);color:var(--text);font-family:inherit" /></td>
-        <td><input id="edit-name-${s.id}" value="${s.name}" style="width:80px;font-size:12px;padding:4px 6px;border-radius:4px;border:0.5px solid var(--border2);background:var(--surface);color:var(--text);font-family:inherit" /></td>
-        <td class="td-right"><input id="edit-shares-${s.id}" type="number" value="${s.shares}" style="width:80px;font-size:12px;padding:4px 6px;border-radius:4px;border:0.5px solid var(--border2);background:var(--surface);color:var(--text);text-align:right;font-family:inherit" /></td>
-        <td class="td-right"><input id="edit-cost-${s.id}" type="number" value="${s.cost}" step="0.01" style="width:80px;font-size:12px;padding:4px 6px;border-radius:4px;border:0.5px solid var(--border2);background:var(--surface);color:var(--text);text-align:right;font-family:inherit" /></td>
-        <td class="td-right" style="color:var(--text3)">${s.currentPrice != null ? s.currentPrice.toLocaleString('zh-TW', {minimumFractionDigits:2,maximumFractionDigits:2}) : '—'}</td>
-        <td></td><td></td><td></td><td></td><td></td><td></td>
-        <td class="td-actions" style="white-space:nowrap">
-          <button class="btn btn-primary btn-sm" onclick="saveEdit(${s.id})">儲存</button>
-          <button class="btn btn-sm" onclick="cancelEdit()">取消</button>
-        </td>
-      </tr>`;
-    }
-
-    return `<tr draggable="true" ondragstart="onDragStart(event,${s.id})" ondragend="onDragEnd(event)" ondragover="onDragOver(event)" ondrop="onDrop(event,${s.id})">
+    return `<tr draggable="true" ondragstart="onDragStart(event,'${s.code}')" ondragend="onDragEnd(event)" ondragover="onDragOver(event)" ondrop="onDrop(event,'${s.code}')">
       <td class="td-code">${s.code}</td>
       <td>${s.name}</td>
       <td class="td-right">${s.shares.toLocaleString()}</td>
       <td class="td-right">${fmt2(s.cost)}</td>
       <td class="td-right">${s.currentPrice != null ? s.currentPrice.toLocaleString('zh-TW', {minimumFractionDigits:2,maximumFractionDigits:2}) : '—'}</td>
       <td class="td-right">
-        <div class="flip-cell" id="flip-${s.id}">
+        <div class="flip-cell" id="flip-${s.code}">
           <span class="flip-a ${hasPrev ? (dayPct >= 0 ? 'pos' : 'neg') : ''}">${hasPrev ? (dayPct >= 0 ? '+' : '') + (s.currentPrice - s.previousClose).toLocaleString('zh-TW',{minimumFractionDigits:2,maximumFractionDigits:2}) : '—'}</span>
           <span class="flip-b hidden ${hasPrev ? (dayPct >= 0 ? 'pos' : 'neg') : ''}">${hasPrev ? fmtP(dayPct) : '—'}</span>
         </div>
@@ -1115,27 +1077,147 @@ function renderTable() {
       </td>
       <td class="td-right"><span class="badge ${badgeCls}">${pct != null ? fmtP(pct) : '—'}</span></td>
       <td class="td-actions" style="white-space:nowrap">
-        <button class="btn btn-sm" onclick="startClose(${s.id})" title="平倉">💸</button>
-        <button class="btn btn-sm" onclick="startEdit(${s.id})" title="編輯">✎</button>
-        <button class="btn btn-danger btn-sm" onclick="removeStock(${s.id})" title="刪除">🗑</button>
+        <button class="btn btn-sm" onclick="startClose('${s.code}')" title="平倉">💸</button>
+        <button class="btn btn-danger btn-sm" onclick="removeHolding('${s.code}')" title="刪除此股票所有交易紀錄">🗑</button>
+      </td>
+    </tr>`;
+  }).join('');
+}
+
+function toggleTxnSection() {
+  const el = $('txn-section');
+  const btn = $('txn-toggle-btn');
+  const show = el.style.display === 'none';
+  el.style.display = show ? 'block' : 'none';
+  btn.textContent = show ? '收起' : '展開';
+}
+
+let editingTxnId = null;
+
+function openTxnModal(id = null) {
+  editingTxnId = id;
+  const t = id != null ? transactions.find(x => x.id === id) : null;
+  $('txn-modal-title').textContent = t ? '編輯交易' : '新增交易';
+  $('txn-code').value = t ? t.code : '';
+  $('txn-name').value = t ? t.name : '';
+  $('txn-type').value = t ? t.type : 'buy';
+  $('txn-shares').value = t ? t.shares : '';
+  $('txn-price').value = t ? t.price : '';
+  $('txn-fee').value = t ? (t.fee || 0) : 0;
+  $('txn-date').value = t ? toDateInput(t.date) : toDateInput(new Date().toISOString());
+  $('txn-modal-status').innerHTML = '';
+  $('txn-modal-overlay').style.display = 'flex';
+  $('txn-code').focus();
+}
+
+function closeTxnModal() {
+  editingTxnId = null;
+  $('txn-modal-overlay').style.display = 'none';
+}
+
+async function saveTxnModal() {
+  const code = $('txn-code').value.trim().toUpperCase();
+  const name = $('txn-name').value.trim();
+  const type = $('txn-type').value;
+  const shares = parseFloat($('txn-shares').value);
+  const price = parseFloat($('txn-price').value);
+  const feeRaw = parseFloat($('txn-fee').value);
+  const fee = isNaN(feeRaw) ? 0 : feeRaw;
+  const dateVal = $('txn-date').value;
+  if (!code || !name || isNaN(shares) || shares <= 0 || isNaN(price) || price < 0 || fee < 0 || !dateVal) {
+    setStatus('txn-modal-status', 'err', '請填寫所有欄位，且股數、價格、手續費須為有效數值');
+    return;
+  }
+  const date = new Date(dateVal + 'T00:00:00').toISOString();
+  if (editingTxnId != null) {
+    const t = transactions.find(x => x.id === editingTxnId);
+    if (t) Object.assign(t, { code, name, type, shares, price, fee, date });
+  } else {
+    transactions.push({ id: nextId(), code, name, type, shares, price, fee, date });
+  }
+  editingTxnId = null;
+  $('txn-modal-overlay').style.display = 'none';
+  await saveGist();
+  renderTable();
+  renderTxnTable();
+  updateSummary();
+}
+
+async function deleteTxn(id) {
+  const t = transactions.find(x => x.id === id);
+  if (!t) return;
+  const msg = t.type === 'sell'
+    ? `確定要刪除這筆賣出交易？將把 ${t.shares.toLocaleString()} 股 ${t.code} 復原回持倉。`
+    : `確定要刪除這筆買入交易？可能影響 ${t.code} 後續交易的持倉計算。`;
+  if (!confirm(msg)) return;
+  transactions = transactions.filter(x => x.id !== id);
+  await saveGist();
+  renderTable();
+  renderTxnTable();
+  updateSummary();
+}
+
+function renderTxnTable() {
+  const tbody = $('txn-tbody');
+  $('txn-count-hint').textContent = transactions.length + ' 筆';
+  const { closedRows, hadInsufficientShares } = computeHoldings();
+  $('txn-warning').style.display = hadInsufficientShares ? 'block' : 'none';
+
+  if (!transactions.length) {
+    tbody.innerHTML = '<tr><td colspan="10" class="empty-state">尚無交易紀錄</td></tr>';
+    return;
+  }
+
+  const realizedByTxnId = Object.fromEntries(closedRows.map(c => [c.txnId, c]));
+  const sorted = [...transactions].sort((a, b) => {
+    const d = new Date(b.date) - new Date(a.date);
+    return d !== 0 ? d : b.id - a.id;
+  });
+
+  tbody.innerHTML = sorted.map(t => {
+    const dt = new Date(t.date);
+    const dateStr = dt.toLocaleDateString('zh-TW', {year:'numeric', month:'2-digit', day:'2-digit'});
+    const isBuy = t.type === 'buy';
+    const realized = realizedByTxnId[t.id];
+    const pnlCells = realized
+      ? `<td class="td-right ${realized.realizedPnl >= 0 ? 'pos' : 'neg'}" style="font-weight:500">${realized.realizedPnl >= 0 ? '+' : ''}${fmt(realized.realizedPnl)}</td>
+         <td class="td-right"><span class="badge ${realized.realizedPnl >= 0 ? 'badge-pos' : 'badge-neg'}">${fmtP(realized.realizedPct)}</span></td>`
+      : `<td class="td-right" style="color:var(--text3)">—</td><td class="td-right" style="color:var(--text3)">—</td>`;
+    return `<tr>
+      <td>${dateStr}</td>
+      <td><span class="badge ${isBuy ? 'badge-pos' : 'badge-neg'}">${isBuy ? '買入' : '賣出'}</span></td>
+      <td class="td-code">${t.code}</td>
+      <td>${t.name}</td>
+      <td class="td-right">${t.shares.toLocaleString()}</td>
+      <td class="td-right">${fmt2(t.price)}</td>
+      <td class="td-right">${fmt(t.fee || 0)}</td>
+      ${pnlCells}
+      <td class="td-actions" style="white-space:nowrap">
+        <button class="btn btn-sm" onclick="openTxnModal(${t.id})" title="編輯">✎</button>
+        <button class="btn btn-danger btn-sm" onclick="deleteTxn(${t.id})" title="刪除">🗑</button>
       </td>
     </tr>`;
   }).join('');
 }
 
 function updateSummary() {
-  const totalCost = stocks.reduce((a, s) => a + s.shares * s.cost, 0);
-  const totalVal = stocks.reduce((a, s) => a + (s.currentPrice != null ? s.shares * s.currentPrice : s.shares * s.cost), 0);
+  const { holdings, closedRows } = computeHoldings();
+
+  const totalCost = holdings.reduce((a, h) => a + h.shares * h.cost, 0);
+  const totalVal = holdings.reduce((a, h) => {
+    const p = prices[h.code] || {};
+    return a + h.shares * (p.currentPrice != null ? p.currentPrice : h.cost);
+  }, 0);
   const pnl = totalVal - totalCost;
   const pct = totalCost > 0 ? (pnl / totalCost) * 100 : 0;
-  const hasPrices = stocks.some(s => s.currentPrice != null);
+  const hasPrices = holdings.some(h => prices[h.code]?.currentPrice != null);
 
   // 今日損益
-  const dayStocks = stocks.filter(s => s.currentPrice != null && s.previousClose != null);
-  const dayPnl = dayStocks.reduce((a, s) => a + (s.currentPrice - s.previousClose) * s.shares, 0);
-  const dayBase = dayStocks.reduce((a, s) => a + s.previousClose * s.shares, 0);
+  const dayHoldings = holdings.filter(h => prices[h.code]?.currentPrice != null && prices[h.code]?.previousClose != null);
+  const dayPnl = dayHoldings.reduce((a, h) => a + (prices[h.code].currentPrice - prices[h.code].previousClose) * h.shares, 0);
+  const dayBase = dayHoldings.reduce((a, h) => a + prices[h.code].previousClose * h.shares, 0);
   const dayPct = dayBase > 0 ? (dayPnl / dayBase) * 100 : 0;
-  const hasDay = dayStocks.length > 0;
+  const hasDay = dayHoldings.length > 0;
 
   $('s-cost').textContent = '$' + fmt(totalCost);
   $('s-value').textContent = hasPrices ? '$' + fmt(totalVal) : '—';
@@ -1159,18 +1241,18 @@ function updateSummary() {
     pnlEl.textContent = '—'; pnlEl.className = 'm-value';
     $('s-pct').textContent = '需更新股價';
   }
-  $('s-count').textContent = stocks.length;
+  $('s-count').textContent = holdings.length;
 
-  const realizedTotal = closedPositions.reduce((a, c) => a + c.realizedPnl, 0);
+  const realizedTotal = closedRows.reduce((a, c) => a + c.realizedPnl, 0);
   const realizedEl = $('s-realized');
-  if (closedPositions.length) {
+  if (closedRows.length) {
     realizedEl.textContent = (realizedTotal >= 0 ? '+$' : '-$') + fmt(Math.abs(realizedTotal));
     realizedEl.className = 'm-value ' + (realizedTotal >= 0 ? 'pos' : 'neg');
   } else {
     realizedEl.textContent = '—';
     realizedEl.className = 'm-value';
   }
-  $('s-realized-count').textContent = closedPositions.length + ' 筆已平倉';
+  $('s-realized-count').textContent = closedRows.length + ' 筆已平倉';
 }
 </script>
 </body>
