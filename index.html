@@ -235,6 +235,17 @@
   tbody tr.drag-over td { border-top: 2px solid var(--blue); }
   tbody tr { cursor: grab; }
   tbody tr.editing-row { cursor: default; }
+  tbody tr.expand-row { cursor: default; }
+
+  .expand-btn {
+    background: none; border: none; cursor: pointer; color: var(--text2);
+    font-size: 11px; padding: 0 5px 0 0; vertical-align: middle;
+  }
+  .expand-btn:hover { color: var(--text); }
+  .lots-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+  .lots-table th { font-size: 10px; font-weight: 500; color: var(--text3); text-align: left; padding: 4px 8px; text-transform: uppercase; letter-spacing: 0.4px; }
+  .lots-table td { padding: 6px 8px; border-bottom: 0.5px solid var(--border); }
+  .lots-table tr:last-child td { border-bottom: none; }
 
   @media (max-width: 640px) {
     .summary-grid { grid-template-columns: repeat(2, 1fr); }
@@ -402,45 +413,41 @@
 
     <div class="toolbar" style="margin-top:1.75rem">
       <div style="display:flex;align-items:center;gap:10px">
-        <span class="toolbar-title">交易紀錄</span>
-        <span style="font-size:11px;color:var(--text3)" id="txn-count-hint">0 筆</span>
+        <span class="toolbar-title">已平倉</span>
+        <span style="font-size:11px;color:var(--text3)" id="closed-count-hint">0 筆</span>
       </div>
       <div class="toolbar-actions">
-        <button class="btn btn-sm btn-primary" onclick="openTxnModal()">
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>
-          新增交易
-        </button>
-        <button class="btn btn-sm" onclick="toggleTxnSection()" id="txn-toggle-btn">展開</button>
+        <button class="btn btn-sm" onclick="toggleClosedSection()" id="closed-toggle-btn">展開</button>
       </div>
     </div>
 
-    <div class="table-wrap" id="txn-section" style="display:none">
+    <div class="table-wrap" id="closed-section" style="display:none">
       <div id="txn-warning" class="status status-err" style="display:none;margin-bottom:10px">
         ⚠ 偵測到有交易的賣出股數超過當時可用股數，部分持倉與損益計算可能不準確，請檢查交易紀錄的日期與股數是否正確。
       </div>
       <table>
         <thead>
           <tr>
-            <th>日期</th>
-            <th>類型</th>
             <th>代碼</th>
             <th>名稱</th>
-            <th class="td-right">股數</th>
-            <th class="td-right">價格</th>
+            <th class="td-right">平倉股數</th>
+            <th class="td-right">平均成本</th>
+            <th class="td-right">賣出價</th>
             <th class="td-right">手續費</th>
             <th class="td-right">已實現損益</th>
             <th class="td-right">報酬率</th>
+            <th>平倉日期</th>
             <th></th>
           </tr>
         </thead>
-        <tbody id="txn-tbody">
-          <tr><td colspan="10" class="empty-state">尚無交易紀錄</td></tr>
+        <tbody id="closed-tbody">
+          <tr><td colspan="10" class="empty-state">尚無平倉紀錄</td></tr>
         </tbody>
       </table>
     </div>
 
     <div class="footer-note">
-      有填 Fugle API Key 時股價為盤中即時報價；未填時透過 Yahoo Finance proxy，速度較慢且部分代碼可能抓不到。今日損益以昨日收盤價為基準計算。持倉股數與平均成本由買賣交易紀錄自動加權計算。
+      有填 Fugle API Key 時股價為盤中即時報價；未填時透過 Yahoo Finance proxy，速度較慢且部分代碼可能抓不到。今日損益以昨日收盤價為基準計算。持倉股數與平均成本由買賣交易紀錄自動加權計算，點列前方箭頭可展開查看買入明細。
     </div>
   </div>
 
@@ -718,7 +725,7 @@ async function connectGist(silent = false) {
     $('main-app').style.display = 'block';
     renderFugleSection();
     renderTable();
-    renderTxnTable();
+    renderClosedTable();
     updateSummary();
     startFlipTimer();
     if (migrated) await saveGist();
@@ -884,7 +891,7 @@ async function addStock() {
   transactions.push({ id: nextId(), code, name, type: 'buy', shares, price: cost, fee: 0, date: new Date().toISOString() });
   await saveGist();
   renderTable();
-  renderTxnTable();
+  renderClosedTable();
   updateSummary();
   toggleAddForm();
   ['f-code','f-name','f-shares','f-cost'].forEach(id => $(id).value = '');
@@ -897,11 +904,17 @@ async function removeHolding(code) {
   holdingOrder = holdingOrder.filter(c => c !== code);
   await saveGist();
   renderTable();
-  renderTxnTable();
+  renderClosedTable();
   updateSummary();
 }
 
 let closingCode = null;
+let expandedCodes = new Set();
+
+function toggleExpand(code) {
+  if (expandedCodes.has(code)) expandedCodes.delete(code); else expandedCodes.add(code);
+  renderTable();
+}
 
 function startClose(code) {
   const { holdings } = computeHoldings();
@@ -959,7 +972,7 @@ async function confirmClose() {
   $('close-modal-overlay').style.display = 'none';
   await saveGist();
   renderTable();
-  renderTxnTable();
+  renderClosedTable();
   updateSummary();
 }
 
@@ -1055,8 +1068,10 @@ function renderTable() {
     const dayIsPos = dayPnl != null && dayPnl >= 0;
     const dayBadgeCls = dayPnl == null ? 'badge-na' : (dayIsPos ? 'badge-pos' : 'badge-neg');
 
-    return `<tr draggable="true" ondragstart="onDragStart(event,'${s.code}')" ondragend="onDragEnd(event)" ondragover="onDragOver(event)" ondrop="onDrop(event,'${s.code}')">
-      <td class="td-code">${s.code}</td>
+    const isExpanded = expandedCodes.has(s.code);
+
+    const mainRow = `<tr draggable="true" ondragstart="onDragStart(event,'${s.code}')" ondragend="onDragEnd(event)" ondragover="onDragOver(event)" ondrop="onDrop(event,'${s.code}')">
+      <td class="td-code"><button class="expand-btn" onclick="toggleExpand('${s.code}')" title="展開/收合買入明細">${isExpanded ? '▾' : '▸'}</button>${s.code}</td>
       <td>${s.name}</td>
       <td class="td-right">${s.shares.toLocaleString()}</td>
       <td class="td-right">${fmt2(s.cost)}</td>
@@ -1081,12 +1096,43 @@ function renderTable() {
         <button class="btn btn-danger btn-sm" onclick="removeHolding('${s.code}')" title="刪除此股票所有交易紀錄">🗑</button>
       </td>
     </tr>`;
+
+    return mainRow + (isExpanded ? renderLotsRow(s.code, s.name) : '');
   }).join('');
 }
 
-function toggleTxnSection() {
-  const el = $('txn-section');
-  const btn = $('txn-toggle-btn');
+function renderLotsRow(code, name) {
+  const lots = transactions.filter(t => t.code === code && t.type === 'buy')
+    .sort((a, b) => { const d = new Date(a.date) - new Date(b.date); return d !== 0 ? d : a.id - b.id; });
+
+  const lotsHtml = lots.length
+    ? `<table class="lots-table">
+        <thead><tr><th>日期</th><th class="td-right">股數</th><th class="td-right">買入價</th><th class="td-right">手續費</th><th></th></tr></thead>
+        <tbody>${lots.map(t => `<tr>
+          <td>${new Date(t.date).toLocaleDateString('zh-TW')}</td>
+          <td class="td-right">${t.shares.toLocaleString()}</td>
+          <td class="td-right">${fmt2(t.price)}</td>
+          <td class="td-right">${fmt(t.fee || 0)}</td>
+          <td class="td-actions" style="white-space:nowrap">
+            <button class="btn btn-sm" onclick="openTxnModal(${t.id})" title="編輯">✎</button>
+            <button class="btn btn-danger btn-sm" onclick="deleteTxn(${t.id})" title="刪除">🗑</button>
+          </td>
+        </tr>`).join('')}</tbody>
+      </table>`
+    : '<div style="font-size:12px;color:var(--text3);padding:0.5rem 0">尚無買入紀錄</div>';
+
+  return `<tr class="expand-row">
+    <td colspan="12" style="background:var(--surface2);padding:0.85rem 1.25rem 1rem 2.25rem">
+      <div style="font-size:11px;font-weight:600;color:var(--text2);text-transform:uppercase;letter-spacing:0.4px;margin-bottom:8px">買入明細</div>
+      ${lotsHtml}
+      <button class="btn btn-sm btn-primary" style="margin-top:10px" onclick="openTxnModal(null,'${code}','${name}')">+ 新增買入</button>
+    </td>
+  </tr>`;
+}
+
+function toggleClosedSection() {
+  const el = $('closed-section');
+  const btn = $('closed-toggle-btn');
   const show = el.style.display === 'none';
   el.style.display = show ? 'block' : 'none';
   btn.textContent = show ? '收起' : '展開';
@@ -1094,12 +1140,12 @@ function toggleTxnSection() {
 
 let editingTxnId = null;
 
-function openTxnModal(id = null) {
+function openTxnModal(id = null, prefillCode = null, prefillName = null) {
   editingTxnId = id;
   const t = id != null ? transactions.find(x => x.id === id) : null;
   $('txn-modal-title').textContent = t ? '編輯交易' : '新增交易';
-  $('txn-code').value = t ? t.code : '';
-  $('txn-name').value = t ? t.name : '';
+  $('txn-code').value = t ? t.code : (prefillCode || '');
+  $('txn-name').value = t ? t.name : (prefillName || '');
   $('txn-type').value = t ? t.type : 'buy';
   $('txn-shares').value = t ? t.shares : '';
   $('txn-price').value = t ? t.price : '';
@@ -1139,7 +1185,7 @@ async function saveTxnModal() {
   $('txn-modal-overlay').style.display = 'none';
   await saveGist();
   renderTable();
-  renderTxnTable();
+  renderClosedTable();
   updateSummary();
 }
 
@@ -1153,48 +1199,43 @@ async function deleteTxn(id) {
   transactions = transactions.filter(x => x.id !== id);
   await saveGist();
   renderTable();
-  renderTxnTable();
+  renderClosedTable();
   updateSummary();
 }
 
-function renderTxnTable() {
-  const tbody = $('txn-tbody');
-  $('txn-count-hint').textContent = transactions.length + ' 筆';
+function renderClosedTable() {
+  const tbody = $('closed-tbody');
   const { closedRows, hadInsufficientShares } = computeHoldings();
+  $('closed-count-hint').textContent = closedRows.length + ' 筆';
   $('txn-warning').style.display = hadInsufficientShares ? 'block' : 'none';
 
-  if (!transactions.length) {
-    tbody.innerHTML = '<tr><td colspan="10" class="empty-state">尚無交易紀錄</td></tr>';
+  if (!closedRows.length) {
+    tbody.innerHTML = '<tr><td colspan="10" class="empty-state">尚無平倉紀錄</td></tr>';
     return;
   }
 
-  const realizedByTxnId = Object.fromEntries(closedRows.map(c => [c.txnId, c]));
-  const sorted = [...transactions].sort((a, b) => {
+  const sorted = [...closedRows].sort((a, b) => {
     const d = new Date(b.date) - new Date(a.date);
-    return d !== 0 ? d : b.id - a.id;
+    return d !== 0 ? d : b.txnId - a.txnId;
   });
 
-  tbody.innerHTML = sorted.map(t => {
-    const dt = new Date(t.date);
+  tbody.innerHTML = sorted.map(c => {
+    const isPos = c.realizedPnl >= 0;
+    const dt = new Date(c.date);
     const dateStr = dt.toLocaleDateString('zh-TW', {year:'numeric', month:'2-digit', day:'2-digit'});
-    const isBuy = t.type === 'buy';
-    const realized = realizedByTxnId[t.id];
-    const pnlCells = realized
-      ? `<td class="td-right ${realized.realizedPnl >= 0 ? 'pos' : 'neg'}" style="font-weight:500">${realized.realizedPnl >= 0 ? '+' : ''}${fmt(realized.realizedPnl)}</td>
-         <td class="td-right"><span class="badge ${realized.realizedPnl >= 0 ? 'badge-pos' : 'badge-neg'}">${fmtP(realized.realizedPct)}</span></td>`
-      : `<td class="td-right" style="color:var(--text3)">—</td><td class="td-right" style="color:var(--text3)">—</td>`;
     return `<tr>
+      <td class="td-code">${c.code}</td>
+      <td>${c.name}</td>
+      <td class="td-right">${c.shares.toLocaleString()}</td>
+      <td class="td-right">${fmt2(c.cost)}</td>
+      <td class="td-right">${fmt2(c.sellPrice)}</td>
+      <td class="td-right">${fmt(c.fee || 0)}</td>
+      <td class="td-right ${isPos ? 'pos' : 'neg'}" style="font-weight:500">${isPos ? '+' : ''}${fmt(c.realizedPnl)}</td>
+      <td class="td-right"><span class="badge ${isPos ? 'badge-pos' : 'badge-neg'}">${fmtP(c.realizedPct)}</span></td>
       <td>${dateStr}</td>
-      <td><span class="badge ${isBuy ? 'badge-pos' : 'badge-neg'}">${isBuy ? '買入' : '賣出'}</span></td>
-      <td class="td-code">${t.code}</td>
-      <td>${t.name}</td>
-      <td class="td-right">${t.shares.toLocaleString()}</td>
-      <td class="td-right">${fmt2(t.price)}</td>
-      <td class="td-right">${fmt(t.fee || 0)}</td>
-      ${pnlCells}
       <td class="td-actions" style="white-space:nowrap">
-        <button class="btn btn-sm" onclick="openTxnModal(${t.id})" title="編輯">✎</button>
-        <button class="btn btn-danger btn-sm" onclick="deleteTxn(${t.id})" title="刪除">🗑</button>
+        <button class="btn btn-sm" onclick="openTxnModal(${c.txnId})" title="編輯">✎</button>
+        <button class="btn btn-danger btn-sm" onclick="deleteTxn(${c.txnId})" title="刪除">🗑</button>
       </td>
     </tr>`;
   }).join('');
