@@ -544,6 +544,7 @@
 
 <script>
 let token = '', gistId = '', transactions = [], holdingOrder = [], prices = {};
+let dataLoaded = false; // 唯有成功從 Gist 載入（或建立全新 Gist）後才允許儲存，避免把讀取失敗當成空資料存回去把原本的資料覆蓋掉
 let idCounter = Date.now();
 function nextId() { return idCounter++; }
 
@@ -660,6 +661,8 @@ async function connectGist(silent = false) {
   gistId = $('gist-id').value.trim();
   if (!token) { setStatus('conn-status', 'err', '請輸入 GitHub Personal Access Token'); return; }
 
+  dataLoaded = false;
+
   if (!silent) {
     $('conn-btn').innerHTML = '<span class="spinner"></span> 連接中...';
     $('conn-btn').disabled = true;
@@ -695,38 +698,62 @@ async function connectGist(silent = false) {
       });
       if (!r.ok) throw new Error(`讀取 Gist 失敗（${r.status}）：Gist ID 是否正確？`);
       const d = await r.json();
-      const raw = d.files['stocks.json']?.content;
-      if (raw) {
-        const parsed = JSON.parse(raw);
-        fugleToken = parsed.fugleToken || '';
-        if (parsed.transactions) {
-          transactions = parsed.transactions || [];
-          holdingOrder = parsed.holdingOrder || [];
-          prices = parsed.prices || {};
-        } else {
-          const migratedData = migrateLegacyData(parsed);
-          transactions = migratedData.transactions;
-          holdingOrder = migratedData.holdingOrder;
-          prices = migratedData.prices;
-          migrated = true;
-        }
-        if (parsed.updated) {
-          const dt = new Date(parsed.updated);
-          const dateStr = dt.toLocaleDateString('zh-TW', {month:'2-digit', day:'2-digit'});
-          const timeStr = dt.toLocaleTimeString('zh-TW', {hour:'2-digit', minute:'2-digit', hour12:false});
-          const el = $('last-updated');
-          if (el) el.textContent = `最後更新 ${dateStr} ${timeStr}`;
-        }
-      } else {
+      const file = d.files['stocks.json'];
+
+      if (!file) {
+        // 檔案不存在 -> 視為全新空白資料
         transactions = [];
         holdingOrder = [];
         prices = {};
         fugleToken = '';
+      } else {
+        let raw = file.content;
+        if (file.truncated) {
+          // GitHub Gist API 對過大的檔案會截斷 content，需改用 raw_url 取得完整內容，
+          // 避免誤判為空資料而在之後的儲存動作中覆蓋掉原本的內容
+          const rawRes = await fetch(file.raw_url, { headers: { 'Authorization': 'token ' + token } });
+          if (!rawRes.ok) throw new Error(`檔案過大，讀取完整內容失敗（HTTP ${rawRes.status}），為避免覆蓋資料已中止連接`);
+          raw = await rawRes.text();
+        }
+        if (!raw) {
+          // 檔案存在但無內容 -> 視為全新空白資料（例如剛建立的 gist）
+          transactions = [];
+          holdingOrder = [];
+          prices = {};
+          fugleToken = '';
+        } else {
+          let parsed;
+          try {
+            parsed = JSON.parse(raw);
+          } catch (parseErr) {
+            throw new Error('資料格式解析失敗，為避免覆蓋資料已中止連接：' + parseErr.message);
+          }
+          fugleToken = parsed.fugleToken || '';
+          if (parsed.transactions) {
+            transactions = parsed.transactions || [];
+            holdingOrder = parsed.holdingOrder || [];
+            prices = parsed.prices || {};
+          } else {
+            const migratedData = migrateLegacyData(parsed);
+            transactions = migratedData.transactions;
+            holdingOrder = migratedData.holdingOrder;
+            prices = migratedData.prices;
+            migrated = true;
+          }
+          if (parsed.updated) {
+            const dt = new Date(parsed.updated);
+            const dateStr = dt.toLocaleDateString('zh-TW', {month:'2-digit', day:'2-digit'});
+            const timeStr = dt.toLocaleTimeString('zh-TW', {hour:'2-digit', minute:'2-digit', hour12:false});
+            const el = $('last-updated');
+            if (el) el.textContent = `最後更新 ${dateStr} ${timeStr}`;
+          }
+        }
       }
     }
 
     // Save GitHub config to localStorage (not fugle key - that lives in Gist)
     localStorage.setItem('stock-tracker-config', JSON.stringify({ token, gistId }));
+    dataLoaded = true;
 
     $('conn-badge').textContent = '已連接 ⚙';
     $('conn-badge').style.background = 'var(--green-bg)';
@@ -763,13 +790,20 @@ function toggleSetup() {
 }
 
 async function saveGist() {
-  await fetch('https://api.github.com/gists/' + gistId, {
+  if (!dataLoaded) {
+    alert('內部錯誤：尚未成功從 Gist 載入資料，為避免覆蓋你的資料，本次操作已取消儲存。請重新整理頁面再試一次。');
+    return;
+  }
+  const r = await fetch('https://api.github.com/gists/' + gistId, {
     method: 'PATCH',
     headers: { 'Authorization': 'token ' + token, 'Content-Type': 'application/json' },
     body: JSON.stringify({
       files: { 'stocks.json': { content: JSON.stringify({ transactions, holdingOrder, prices, fugleToken, updated: new Date().toISOString() }) } }
     })
   });
+  if (!r.ok) {
+    alert(`儲存到 Gist 失敗（HTTP ${r.status}）。請檢查網路連線與 Token 是否仍有效，並重新整理頁面確認資料，避免變更遺失。`);
+  }
 }
 
 // 依交易紀錄（依日期排序）重播計算目前持倉（加權成交均價，不含手續費）與已實現損益
