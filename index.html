@@ -545,6 +545,7 @@
 <script>
 let token = '', gistId = '', transactions = [], holdingOrder = [], prices = {};
 let dataLoaded = false; // 唯有成功從 Gist 載入（或建立全新 Gist）後才允許儲存，避免把讀取失敗當成空資料存回去把原本的資料覆蓋掉
+let lastKnownUpdated = null; // 本機最後讀取到的 updated 時間戳，用來偵測是否有其他分頁/裝置已寫入更新的資料
 let idCounter = Date.now();
 function nextId() { return idCounter++; }
 
@@ -662,6 +663,7 @@ async function connectGist(silent = false) {
   if (!token) { setStatus('conn-status', 'err', '請輸入 GitHub Personal Access Token'); return; }
 
   dataLoaded = false;
+  lastKnownUpdated = null;
 
   if (!silent) {
     $('conn-btn').innerHTML = '<span class="spinner"></span> 連接中...';
@@ -740,6 +742,7 @@ async function connectGist(silent = false) {
             prices = migratedData.prices;
             migrated = true;
           }
+          lastKnownUpdated = parsed.updated || null;
           if (parsed.updated) {
             const dt = new Date(parsed.updated);
             const dateStr = dt.toLocaleDateString('zh-TW', {month:'2-digit', day:'2-digit'});
@@ -789,21 +792,58 @@ function toggleSetup() {
   card.style.display = card.style.display === 'none' ? 'block' : 'none';
 }
 
+// 儲存前檢查遠端是否已被其他分頁/裝置更新過（避免用本機的舊資料覆蓋掉別人剛存的新資料）
+async function checkRemoteConflict() {
+  try {
+    const r = await fetch('https://api.github.com/gists/' + gistId, {
+      headers: { 'Authorization': 'token ' + token }
+    });
+    if (!r.ok) return true; // 連線異常時不擋儲存，避免因網路問題完全無法使用
+    const d = await r.json();
+    const file = d.files['stocks.json'];
+    if (!file) return true;
+    let raw = file.content;
+    if (file.truncated) {
+      const rr = await fetch(file.raw_url, { headers: { 'Authorization': 'token ' + token } });
+      if (!rr.ok) return true;
+      raw = await rr.text();
+    }
+    if (!raw) return true;
+    const remoteParsed = JSON.parse(raw);
+    const remoteUpdated = remoteParsed.updated || null;
+    if (remoteUpdated && lastKnownUpdated && remoteUpdated !== lastKnownUpdated) {
+      return confirm(
+        `偵測到這份 Gist 已被其他分頁或裝置更新過\n（遠端最後更新：${remoteUpdated}\n本機讀取時：${lastKnownUpdated}）。\n\n` +
+        `繼續儲存將覆蓋掉那個更新。建議先取消並重新整理頁面讀取最新資料。\n\n仍要覆蓋儲存嗎？`
+      );
+    }
+    return true;
+  } catch {
+    return true; // 檢查本身失敗時不擋儲存
+  }
+}
+
 async function saveGist() {
   if (!dataLoaded) {
     alert('內部錯誤：尚未成功從 Gist 載入資料，為避免覆蓋你的資料，本次操作已取消儲存。請重新整理頁面再試一次。');
     return;
   }
+  const proceed = await checkRemoteConflict();
+  if (!proceed) return;
+
+  const updated = new Date().toISOString();
   const r = await fetch('https://api.github.com/gists/' + gistId, {
     method: 'PATCH',
     headers: { 'Authorization': 'token ' + token, 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      files: { 'stocks.json': { content: JSON.stringify({ transactions, holdingOrder, prices, fugleToken, updated: new Date().toISOString() }) } }
+      files: { 'stocks.json': { content: JSON.stringify({ transactions, holdingOrder, prices, fugleToken, updated }) } }
     })
   });
   if (!r.ok) {
     alert(`儲存到 Gist 失敗（HTTP ${r.status}）。請檢查網路連線與 Token 是否仍有效，並重新整理頁面確認資料，避免變更遺失。`);
+    return;
   }
+  lastKnownUpdated = updated;
 }
 
 // 依交易紀錄（依日期排序）重播計算目前持倉（加權成交均價，不含手續費）與已實現損益
