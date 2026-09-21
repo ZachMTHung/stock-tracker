@@ -1210,9 +1210,14 @@ function handleHoldingRowClick(e, code) {
 const TXN_TYPE_LABELS = { buy: '買入', sell: '賣出', dividend: '配息' };
 const TXN_TYPE_BADGE_CLASS = { buy: 'badge-pos', sell: 'badge-neg', dividend: 'badge-div' };
 
-function renderTxnDetailTable(code, { types = ['buy', 'sell', 'dividend'], cutoffISO = null } = {}) {
-  let txns = transactions.filter(t => t.code === code && types.includes(t.type));
-  if (cutoffISO) txns = txns.filter(t => new Date(t.date) <= new Date(cutoffISO));
+function renderTxnDetailTable(code, { types = ['buy', 'sell', 'dividend'], cutoffISO = null, onlyIds = null } = {}) {
+  let txns = transactions.filter(t => t.code === code);
+  if (onlyIds) {
+    txns = txns.filter(t => onlyIds.has(t.id));
+  } else {
+    txns = txns.filter(t => types.includes(t.type));
+    if (cutoffISO) txns = txns.filter(t => new Date(t.date) <= new Date(cutoffISO));
+  }
   // 最近日期排最上面
   txns = txns.sort((a, b) => { const d = new Date(b.date) - new Date(a.date); return d !== 0 ? d : b.id - a.id; });
 
@@ -1388,11 +1393,37 @@ function renderClosedTable() {
   }).join('');
 }
 
+// 找出「這一筆賣出」實際計入成交均價的買入交易 id：
+// 只取自上一次股數歸零（也就是上一輪波段結清）之後、到這筆賣出為止的買入，
+// 避免把已經在更早一輪波段賣光的舊買入紀錄也顯示出來
+function getCostBasisLotIds(code, targetSellTxnId) {
+  const sorted = transactions
+    .filter(t => t.code === code && t.type !== 'dividend')
+    .sort((a, b) => { const d = new Date(a.date) - new Date(b.date); return d !== 0 ? d : a.id - b.id; });
+
+  let shares = 0;
+  let windowIds = [];
+
+  for (const t of sorted) {
+    if (t.type === 'buy') {
+      windowIds.push(t.id);
+      shares += t.shares;
+    } else {
+      const sellShares = Math.min(t.shares, Math.max(shares, 0));
+      shares -= sellShares;
+      if (t.id === targetSellTxnId) return windowIds;
+      if (shares <= 1e-6) { windowIds = []; shares = 0; }
+    }
+  }
+  return windowIds;
+}
+
 function renderClosedExpandRow(c) {
+  const lotIds = new Set(getCostBasisLotIds(c.code, c.txnId));
   return `<tr class="expand-row">
     <td colspan="10" style="background:var(--surface2);padding:0.85rem 1.25rem 1rem 2.25rem">
-      <div style="font-size:11px;font-weight:600;color:var(--text2);text-transform:uppercase;letter-spacing:0.4px;margin-bottom:8px">成本基礎買入明細（賣出當時之前的買入紀錄）</div>
-      ${renderTxnDetailTable(c.code, { types: ['buy'], cutoffISO: c.date })}
+      <div style="font-size:11px;font-weight:600;color:var(--text2);text-transform:uppercase;letter-spacing:0.4px;margin-bottom:8px">成本基礎買入明細（此輪波段、賣出當時之前的買入紀錄）</div>
+      ${renderTxnDetailTable(c.code, { onlyIds: lotIds })}
     </td>
   </tr>`;
 }
